@@ -125,10 +125,9 @@
       <select id="measure-type" style="min-width:110px;flex:0 0 auto"><option value="distance">Mesafe</option><option value="area">Alan</option></select>
       <button id="btn-measure-finish" class="sec">Ölçümü Bitir</button>
       <button id="btn-measure-clear" class="sec">Ölçümü Sil</button>
-      <input id="wms-url" placeholder="WMS servis URL" style="flex:1 1 220px;width:auto">
-      <input id="wms-layer" placeholder="Katman adı" style="flex:1 1 140px;width:auto">
-      <button id="btn-wms" class="sec">WMS İmar Ekle</button>
-      <button id="btn-wms-clear" class="sec">WMS Kaldır</button>
+      <button id="btn-auto-imar" class="sec" disabled>İmar katmanı yok</button>
+      <span id="wms-status" class="hint">İl/ilçe seçilince açık imar servisi otomatik aranır.</span>
+      <button id="btn-wms-clear" class="sec">İmar Katmanını Kapat</button>
       <div id="favlist"></div>
     </div>
   </div>
@@ -141,6 +140,6 @@
 </div>
 
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-<script src="app.js?v=9"></script>
+<script src="app.js?v=10"></script>
 </body>
 </html>

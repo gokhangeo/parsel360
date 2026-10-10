@@ -174,6 +174,8 @@
 
   elIl.addEventListener('change', function () {
     var id = elIl.value;
+    var selectedName = elIl.selectedOptions[0] ? elIl.selectedOptions[0].textContent : '';
+    setAutoImar(imarKey(selectedName));
     fill(elIlce, [], 'İlçe…'); fill(elMah, [], 'Mahalle…');
     layerMahalle.clearLayers(); layerParsel.clearLayers();
     elAda.value = ''; elParsel.value = '';
@@ -491,8 +493,36 @@
   $('btn-measure-clear').onclick = function(){toolMode=null;measurePts=[];measureLayer.clearLayers();msg('Ölçüm temizlendi.','ok');};
   $('btn-measure-finish').onclick = function(){ var typ=$('measure-type').value; if(typ==='area'){if(measurePts.length>2)L.polygon(measurePts,{color:'#ff5c8a',fillOpacity:.15}).addTo(measureLayer); msg('Yaklaşık alan: <b>'+fmt(polyArea(measurePts))+' m²</b>','ok');} else {var d=0;for(var i=1;i<measurePts.length;i++)d+=hav(measurePts[i-1],measurePts[i]);msg('Yaklaşık mesafe: <b>'+fmt(d)+' m</b>','ok');} toolMode=null; };
 
-  $('btn-wms').onclick = function(){ var u=$('wms-url').value.trim(), l=$('wms-layer').value.trim(); if(!u||!l){msg('WMS URL ve katman adı gerekli.','err');return;} if(wmsLayer)map.removeLayer(wmsLayer); wmsLayer=L.tileLayer.wms(u,{layers:l,format:'image/png',transparent:true,opacity:.65,version:'1.1.1'}).addTo(map); msg('WMS imar katmanı eklendi. Belediye servisi CORS izinli olmalıdır.','ok'); };
-  $('btn-wms-clear').onclick = function(){if(wmsLayer){map.removeLayer(wmsLayer);wmsLayer=null;}msg('WMS katmanı kaldırıldı.','ok');};
+  // Doğrulanmış açık imar servisleri. Katman yalnız uygun il seçilince etkinleşir.
+  var IMAR_LAYERS = {
+    ankara: {
+      title: 'Ankara 1/1000 Uygulama İmar Planı',
+      url: 'https://baskentcbs.ankara.bel.tr/server/services/plan/UIP_Goruntuleme/MapServer/WMSServer',
+      layers: '1,2,3,4,5,6,7,8,9,10,12,13,14,16,17,18,19',
+      version: '1.3.0'
+    }
+  };
+  var activeImarKey = null;
+  function setAutoImar(key) {
+    if (wmsLayer) { map.removeLayer(wmsLayer); wmsLayer = null; }
+    activeImarKey = key && IMAR_LAYERS[key] ? key : null;
+    var b = $('btn-auto-imar'), s = $('wms-status');
+    if (!activeImarKey) {
+      b.disabled = true; b.textContent = 'İmar katmanı yok'; b.style.background = '';
+      s.textContent = 'Bu il için doğrulanmış açık WMS/ArcGIS imar servisi bulunamadı.';
+      return;
+    }
+    var cfg = IMAR_LAYERS[activeImarKey];
+    wmsLayer = L.tileLayer.wms(cfg.url, {layers:cfg.layers,format:'image/png',transparent:true,opacity:.68,version:cfg.version}).addTo(map);
+    b.disabled = false; b.textContent = '✓ İmar katmanı açık'; b.style.background = '#168f55';
+    s.textContent = cfg.title + ' · kadastro üzerine bindirildi';
+  }
+  $('btn-auto-imar').onclick = function(){
+    if (!activeImarKey) return;
+    if (wmsLayer && map.hasLayer(wmsLayer)) { map.removeLayer(wmsLayer); this.textContent='İmar katmanını aç'; this.style.background=''; }
+    else { setAutoImar(activeImarKey); }
+  };
+  $('btn-wms-clear').onclick = function(){ if(wmsLayer){map.removeLayer(wmsLayer);wmsLayer=null;} $('btn-auto-imar').textContent=activeImarKey?'İmar katmanını aç':'İmar katmanı yok'; $('btn-auto-imar').style.background=''; msg('İmar katmanı kapatıldı.','ok'); };
 
   function centerOfCurrent(){ if(!currentGeo)return null; try{return L.geoJSON(currentGeo).getBounds().getCenter();}catch(e){return null;} }
   $('btn-google').onclick = function(){var c=centerOfCurrent()||map.getCenter();window.open('https://www.google.com/maps/search/?api=1&query='+c.lat+','+c.lng,'_blank');};
@@ -537,6 +567,7 @@
 
   $('imar-il').addEventListener('change', function () {
     var k = $('imar-il').value;
+    setAutoImar(k);
     var ilceSel = $('imar-ilce');
     ilceSel.innerHTML = '<option value="">İlçe yükleniyor…</option>';
     ilceSel.disabled = true;
