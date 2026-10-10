@@ -1,456 +1,145 @@
 <!DOCTYPE html>
 <html lang="tr">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Gönül Gözü: AI Yorumcusu</title>
-    <script src="https://cdn.tailwindcss.com"></script>
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700&display=swap" rel="stylesheet">
-    <style>
-        body {
-            font-family: 'Poppins', sans-serif;
-        }
-        .fade-in {
-            animation: fadeIn 0.8s ease-in-out;
-        }
-        @keyframes fadeIn {
-            from { opacity: 0; transform: translateY(20px); }
-            to { opacity: 1; transform: translateY(0); }
-        }
-        .card-glow {
-            box-shadow: 0 0 15px rgba(192, 132, 252, 0.3), 0 0 25px rgba(249, 115, 222, 0.2);
-        }
-        .tab-active {
-            border-color: #a855f7; /* purple-500 */
-            color: #a855f7;
-            background-color: #f3e8ff; /* purple-100 */
-        }
-        /* Dosya yükleme alanı için stil */
-        .drop-zone {
-            border: 2px dashed #d8b4fe; /* purple-300 */
-            transition: background-color 0.3s, border-color 0.3s;
-        }
-        .drop-zone.dragover {
-            background-color: #f3e8ff;
-            border-color: #a855f7;
-        }
-    </style>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+<title>TKGM Parsel Sorgu</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+<style>
+  :root{
+    --bg:#0f1720; --panel:#16212c; --line:#263746; --txt:#e8eef4;
+    --muted:#8fa3b5; --accent:#2f9e6b; --accent2:#3d7bff; --warn:#d9822b;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;height:100%;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;background:var(--bg);color:var(--txt)}
+  #app{display:flex;flex-direction:column;height:100%}
+  header{background:var(--panel);border-bottom:1px solid var(--line);padding:10px 12px;display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+  header h1{font-size:15px;margin:0;font-weight:600;letter-spacing:.2px}
+  .tag{font-size:10px;color:var(--muted);border:1px solid var(--line);padding:2px 6px;border-radius:10px}
+  #bar{padding:10px 12px;background:var(--panel);border-bottom:1px solid var(--line);display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+  select,input,button{font:inherit;font-size:14px;border-radius:8px;border:1px solid var(--line);background:#0d151d;color:var(--txt);padding:8px 10px;outline:none}
+  select:focus,input:focus{border-color:var(--accent2)}
+  select{min-width:120px;flex:1 1 130px}
+  input{width:92px}
+  button{background:var(--accent);border-color:var(--accent);color:#fff;font-weight:600;cursor:pointer;flex:0 0 auto}
+  button.sec{background:#22303d;border-color:var(--line);color:var(--txt);font-weight:500}
+  button:active{filter:brightness(.92)}
+  button:disabled{opacity:.5;cursor:default}
+  #map{flex:1;min-height:220px;background:#0a1116}
+  #info{padding:10px 12px;background:var(--panel);border-top:1px solid var(--line);font-size:13px;line-height:1.6;max-height:34vh;overflow:auto}
+  #info .row{display:flex;gap:8px}
+  #info b{color:#fff}
+  .kv{display:grid;grid-template-columns:auto 1fr;gap:2px 10px;margin:2px 0}
+  .kv span:nth-child(odd){color:var(--muted)}
+  .msg{color:var(--muted)}
+  .err{color:#ff8a8a}
+  .ok{color:#6de3a8}
+  .coords{font-family:ui-monospace,Menlo,monospace;font-size:12px;color:var(--muted);word-break:break-all}
+  .chk{display:flex;align-items:center;gap:6px;color:var(--muted);font-size:13px}
+  .chk input{width:auto}
+  #tabs{display:flex;gap:6px}
+  #tabs button{padding:6px 12px;font-size:13px;border-radius:8px}
+  #tabs button.on{background:var(--accent2);border-color:var(--accent2)}
+  .hint{font-size:11px;color:var(--muted)}
+  #sp{display:none;width:14px;height:14px;border:2px solid var(--muted);border-top-color:transparent;border-radius:50%;animation:s .7s linear infinite}
+  @keyframes s{to{transform:rotate(360deg)}}
+  #dlmenu{position:absolute;top:100%;right:12px;z-index:1200;background:var(--panel);border:1px solid var(--line);
+    border-radius:10px;padding:6px;display:none;flex-direction:column;gap:4px;box-shadow:0 8px 24px rgba(0,0,0,.45)}
+  #dlmenu button{width:100%;text-align:left}
+  #bar{position:relative}
+  .pill{display:inline-block;font-size:11px;padding:1px 6px;border-radius:8px;background:#22303d;color:var(--muted);margin-left:6px}
+  #toolpanel{display:none;width:100%;padding:8px;background:#101a23;border:1px solid var(--line);border-radius:10px;gap:6px;flex-wrap:wrap;align-items:center}
+  #toolpanel.on{display:flex}
+  #favlist{width:100%;max-height:160px;overflow:auto;font-size:12px}
+  .favrow{display:flex;justify-content:space-between;align-items:center;padding:5px;border-bottom:1px solid var(--line)}
+  .leaflet-popup-content{color:#111}
+</style>
 </head>
-<body class="bg-gradient-to-br from-purple-100 via-pink-100 to-rose-50 min-h-screen flex items-center justify-center p-4">
+<body>
+<div id="app">
+  <header>
+    <h1>🗺️ TKGM Parsel Sorgu</h1>
+    <span class="tag">il → ilçe → mahalle → ada/parsel</span>
+    <span id="sp"></span>
+  </header>
 
-    <main class="w-full max-w-2xl mx-auto">
-        <div class="bg-white/80 backdrop-blur-sm p-6 sm:p-8 rounded-2xl shadow-lg card-glow">
-            <!-- Başlık Alanı -->
-            <div class="text-center mb-6">
-                <h1 id="main-title" class="text-3xl sm:text-4xl font-bold text-transparent bg-clip-text bg-gradient-to-r from-purple-500 to-pink-500">
-                    Gönül Gözü
-                </h1>
-                <p id="main-subtitle" class="text-gray-500 mt-2">Gördüğünüz rüyayı anlatın, sizin için yorumlayalım.</p>
-            </div>
+  <div id="bar">
+    <div id="tabs">
+      <button id="tb-adm" class="on">İdari</button>
+      <button id="tb-coord" class="sec">Koordinat</button>
+      <button id="tb-imar" class="sec">e-İmar</button>
+    </div>
 
-            <!-- Sekmeler -->
-            <div class="flex border-b-2 border-gray-200 mb-6">
-                <button id="tab-dream" class="flex-1 py-3 px-2 text-sm sm:text-base text-center font-semibold text-gray-500 border-b-4 transition-all duration-300 tab-active">
-                    Rüya Yorumu
-                </button>
-                <button id="tab-coffee" class="flex-1 py-3 px-2 text-sm sm:text-base text-center font-semibold text-gray-500 border-b-4 border-transparent transition-all duration-300">
-                    Kahve Falı
-                </button>
-                <button id="tab-palm" class="flex-1 py-3 px-2 text-sm sm:text-base text-center font-semibold text-gray-500 border-b-4 border-transparent transition-all duration-300">
-                    El Falı
-                </button>
-            </div>
+    <div id="pane-adm" style="display:contents">
+      <select id="il"><option value="">İl…</option></select>
+      <select id="ilce" disabled><option value="">İlçe…</option></select>
+      <select id="mah" disabled><option value="">Mahalle…</option></select>
+      <input id="ada" placeholder="Ada" inputmode="numeric">
+      <input id="parsel" placeholder="Parsel" inputmode="numeric">
+      <button id="btn-sorgu">Sorgula</button>
+      <button id="btn-ada" class="sec" title="Seçilen numara aralığında adanın parsellerini arar">Ada Tara</button>
+      <select id="ada-limit" style="min-width:112px;flex:0 0 auto" title="Taranacak parsel numarası üst sınırı">
+        <option value="100">1–100</option>
+        <option value="250" selected>1–250</option>
+        <option value="500">1–500</option>
+        <option value="1000">1–1000</option>
+      </select>
+    </div>
 
-            <!-- Ana Form Alanı -->
-            <form id="main-form">
-                <!-- Rüya Bölümü -->
-                <div id="dream-section">
-                    <textarea id="dream-input"
-                        class="w-full h-40 p-4 bg-white/50 border border-purple-200 rounded-xl focus:ring-2 focus:ring-purple-400 focus:border-purple-400 transition-all duration-300 resize-none placeholder-gray-400"
-                        placeholder="Örneğin: 'Yemyeşil bir ormanda uçuyordum ve kuşlar bana şarkı söylüyordu...'"></textarea>
-                </div>
-                
-                <!-- Resim Yükleme Bölümü (Kahve ve El Falı için ortak) -->
-                <div id="image-section" class="hidden">
-                    <label for="image-input" class="drop-zone w-full p-6 rounded-xl cursor-pointer flex flex-col items-center justify-center text-center">
-                        <img id="image-preview" src="" class="hidden max-h-32 rounded-lg mb-4"/>
-                        <div id="upload-prompt">
-                            <svg class="w-12 h-12 mx-auto text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z"></path><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 13a3 3 0 11-6 0 3 3 0 016 0z"></path></svg>
-                            <p id="upload-text" class="mt-2 text-gray-500">Fincan fotoğrafını <span class="font-semibold text-purple-500">yüklemek için tıkla</span> veya sürükle bırak.</p>
-                            <p class="text-xs text-gray-400 mt-1">PNG, JPG (En fazla 4MB)</p>
-                        </div>
-                    </label>
-                    <input type="file" id="image-input" class="hidden" accept="image/png, image/jpeg">
-                </div>
+    <div id="pane-coord" style="display:none;gap:8px;flex-wrap:wrap;align-items:center">
+      <input id="lat" placeholder="Enlem" value="37.0012" style="width:110px">
+      <input id="lon" placeholder="Boylam" value="35.3213" style="width:110px">
+      <button id="btn-coord">Bul</button>
+      <span class="hint">parsel/{lat}/{lon}</span>
+    </div>
 
-                <button type="submit" id="submit-button"
-                    class="mt-4 w-full bg-gradient-to-r from-purple-500 to-pink-500 text-white font-bold py-3 px-6 rounded-full hover:scale-105 hover:shadow-xl transition-transform transform duration-300 flex items-center justify-center disabled:opacity-50 disabled:cursor-not-allowed">
-                    <svg id="button-icon" class="w-6 h-6 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z"></path></svg>
-                    <span id="button-text">Yorumla ve Görselleştir</span>
-                </button>
-            </form>
-            
-            <div id="error-message" class="hidden text-center mt-4 p-3 bg-red-100 text-red-700 rounded-lg"></div>
+    <div id="pane-imar" style="display:none;gap:8px;flex-wrap:wrap;align-items:center">
+      <select id="imar-il" style="min-width:130px;flex:1 1 130px"><option value="">İl…</option></select>
+      <select id="imar-ilce" disabled style="min-width:130px;flex:1 1 130px"><option value="">İlçe…</option></select>
+      <button id="btn-imar" disabled>e-İmar Sayfasını Aç</button>
+      <span class="hint">Sadece e-imar desteği olan belediyeler</span>
+    </div>
 
-            <!-- Sonuçlar Alanı -->
-            <div id="results-container" class="mt-8 space-y-8 hidden">
-                <div>
-                    <h2 id="text-result-title" class="text-2xl font-semibold text-gray-700 mb-3 border-b-2 border-purple-200 pb-2">Rüyanızın Yorumu</h2>
-                    <div id="text-result-container" class="bg-purple-50/50 p-4 rounded-lg min-h-[100px] flex items-center justify-center">
-                        <div id="text-loader" class="text-center text-gray-500 hidden">
-                            <div class="animate-spin rounded-full h-8 w-8 border-b-2 border-purple-500 mx-auto mb-2"></div>
-                            Yorumunuz hazırlanıyor...
-                        </div>
-                        <p id="text-result" class="text-gray-600 leading-relaxed"></p>
-                    </div>
-                </div>
-                <div>
-                    <h2 id="image-result-title" class="text-2xl font-semibold text-gray-700 mb-3 border-b-2 border-pink-200 pb-2">Rüyanızın Görseli</h2>
-                    <div id="image-result-container" class="bg-pink-50/50 p-4 rounded-lg min-h-[256px] flex items-center justify-center aspect-square">
-                        <div id="image-loader" class="text-center text-gray-500 hidden">
-                           <div class="animate-spin rounded-full h-8 w-8 border-b-2 border-pink-500 mx-auto mb-2"></div>
-                            Görsel oluşturuluyor...
-                        </div>
-                        <img id="image-result" src="" alt="Yapay zeka görseli" class="hidden rounded-lg w-full h-full object-cover">
-                    </div>
-                </div>
-            </div>
-        </div>
-        <footer class="text-center mt-6 text-sm text-gray-400">
-            <p>Gönül Gözü AI ile Güçlendirilmiştir.</p>
-        </footer>
-    </main>
+    <select id="base" style="flex:0 0 auto;min-width:118px">
+      <option value="hd">HD Uydu + Cadde</option>
+      <option value="sat">Esri Uydu + Sınır</option>
+      <option value="cadde">Salt Cadde/Sokak</option>
+    </select>
+    <button id="btn-dl" class="sec">İndir ▾</button>
+    <div id="dlmenu">
+      <button data-fmt="kml" class="sec">KML (Google Earth)</button>
+      <button data-fmt="json" class="sec">GeoJSON</button>
+      <button data-fmt="dxf" class="sec">DXF (CAD)</button>
+      <button data-fmt="shp" class="sec">Shapefile (ZIP)</button>
+    </div>
+    <button id="btn-tools" class="sec">Araçlar ▾</button>
+    <button id="btn-fav" class="sec">☆ Favori</button>
+    <label class="chk"><input id="multi" type="checkbox"> Çoklu</label>
+    <button id="btn-gps" class="sec">⌖ GPS</button>
+    <button id="btn-measure" class="sec">📏 Ölç</button>
+    <button id="btn-google" class="sec">Google Maps</button>
+    <button id="btn-tkgm" class="sec">TKGM</button>
+    <button id="btn-clear" class="sec">Temizle</button>
+    <div id="toolpanel">
+      <select id="measure-type" style="min-width:110px;flex:0 0 auto"><option value="distance">Mesafe</option><option value="area">Alan</option></select>
+      <button id="btn-measure-finish" class="sec">Ölçümü Bitir</button>
+      <button id="btn-measure-clear" class="sec">Ölçümü Sil</button>
+      <input id="wms-url" placeholder="WMS servis URL" style="flex:1 1 220px;width:auto">
+      <input id="wms-layer" placeholder="Katman adı" style="flex:1 1 140px;width:auto">
+      <button id="btn-wms" class="sec">WMS İmar Ekle</button>
+      <button id="btn-wms-clear" class="sec">WMS Kaldır</button>
+      <div id="favlist"></div>
+    </div>
+  </div>
 
-    <script>
-        // DOM elementleri
-        const mainForm = document.getElementById('main-form');
-        const submitButton = document.getElementById('submit-button');
-        const buttonText = document.getElementById('button-text');
-        const resultsContainer = document.getElementById('results-container');
-        const errorMessage = document.getElementById('error-message');
-        
-        // Sekme elementleri
-        const tabDream = document.getElementById('tab-dream');
-        const tabCoffee = document.getElementById('tab-coffee');
-        const tabPalm = document.getElementById('tab-palm');
-        const dreamSection = document.getElementById('dream-section');
-        const imageSection = document.getElementById('image-section');
-        const mainTitle = document.getElementById('main-title');
-        const mainSubtitle = document.getElementById('main-subtitle');
-        
-        // Rüya elementleri
-        const dreamInput = document.getElementById('dream-input');
+  <div id="map"></div>
 
-        // Resim Yükleme elementleri
-        const imageInput = document.getElementById('image-input');
-        const dropZone = imageSection.querySelector('label');
-        const imagePreview = document.getElementById('image-preview');
-        const uploadPrompt = document.getElementById('upload-prompt');
-        const uploadText = document.getElementById('upload-text');
+  <div id="info">
+    <div class="msg">İl seçerek başla. Mahalle seçilince alanına yakınlaşır; ada + parsel girip <b>Sorgula</b>'ya bas — parsel geometrisi haritada çizilir.</div>
+  </div>
+</div>
 
-        // Sonuç elementleri
-        const textLoader = document.getElementById('text-loader');
-        const textResult = document.getElementById('text-result');
-        const textResultTitle = document.getElementById('text-result-title');
-        const imageLoader = document.getElementById('image-loader');
-        const imageResult = document.getElementById('image-result');
-        const imageResultTitle = document.getElementById('image-result-title');
-
-        // Uygulama durumu
-        let currentMode = 'dream'; // 'dream', 'coffee', or 'palm'
-        let uploadedImageBase64 = null;
-        
-        // API ayarları
-        const keyPart1 = "AIzaSyDdzVt";
-        const keyPart2 = "_Srxc1CzpYBQ";
-        const keyPart3 = "3esZOHrjSbFFANII";
-        const apiKey = keyPart1 + keyPart2 + keyPart3;
-        
-        // --- SEKMELER ---
-        tabDream.addEventListener('click', () => switchMode('dream'));
-        tabCoffee.addEventListener('click', () => switchMode('coffee'));
-        tabPalm.addEventListener('click', () => switchMode('palm'));
-
-        function switchMode(mode) {
-            currentMode = mode;
-            resultsContainer.classList.add('hidden');
-            hideError();
-            
-            // Görsel yükleme alanını sıfırla
-            uploadedImageBase64 = null;
-            imageInput.value = null; // Dosya girişini temizle
-            imagePreview.src = "";
-            imagePreview.classList.add('hidden');
-            uploadPrompt.classList.remove('hidden');
-
-            // Tüm tabları pasif yap
-            [tabDream, tabCoffee, tabPalm].forEach(tab => tab.classList.remove('tab-active'));
-            
-            if (mode === 'dream') {
-                tabDream.classList.add('tab-active');
-                dreamSection.classList.remove('hidden');
-                imageSection.classList.add('hidden');
-                mainTitle.textContent = "Gönül Gözü";
-                mainSubtitle.textContent = "Gördüğünüz rüyayı anlatın, sizin için yorumlayalım.";
-                textResultTitle.textContent = "Rüyanızın Yorumu";
-                imageResultTitle.textContent = "Rüyanızın Görseli";
-            } else {
-                dreamSection.classList.add('hidden');
-                imageSection.classList.remove('hidden');
-                
-                if (mode === 'coffee') {
-                    tabCoffee.classList.add('tab-active');
-                    mainTitle.textContent = "Gönül Gözü";
-                    mainSubtitle.textContent = "Fincan fotoğrafınızı yükleyin, falınıza bakalım.";
-                    textResultTitle.textContent = "Fincanınızın Yorumu";
-                    imageResultTitle.textContent = "Falınızın Görseli";
-                    uploadText.innerHTML = 'Fincan fotoğrafını <span class="font-semibold text-purple-500">yüklemek için tıkla</span> veya sürükle bırak.';
-                } else if (mode === 'palm') {
-                    tabPalm.classList.add('tab-active');
-                    mainTitle.textContent = "Gönül Gözü";
-                    mainSubtitle.textContent = "Avuç içinizin net bir fotoğrafını yükleyin.";
-                    textResultTitle.textContent = "El Falınızın Yorumu";
-                    imageResultTitle.textContent = "Kaderinizin Görseli";
-                    uploadText.innerHTML = 'Avuç içi fotoğrafını <span class="font-semibold text-purple-500">yüklemek için tıkla</span> veya sürükle bırak.';
-                }
-            }
-        }
-
-        // --- RESİM YÜKLEME ---
-        dropZone.addEventListener('dragover', (e) => {
-            e.preventDefault();
-            dropZone.classList.add('dragover');
-        });
-        dropZone.addEventListener('dragleave', () => dropZone.classList.remove('dragover'));
-        dropZone.addEventListener('drop', (e) => {
-            e.preventDefault();
-            dropZone.classList.remove('dragover');
-            const files = e.dataTransfer.files;
-            if (files.length > 0) {
-                handleFile(files[0]);
-            }
-        });
-        imageInput.addEventListener('change', (e) => {
-            const files = e.target.files;
-            if (files.length > 0) {
-                handleFile(files[0]);
-            }
-        });
-
-        function handleFile(file) {
-            if (!file.type.startsWith('image/')) {
-                showError('Lütfen bir resim dosyası seçin.');
-                return;
-            }
-            if (file.size > 4 * 1024 * 1024) { // 4MB limit
-                showError('Dosya boyutu 4MB\'dan büyük olamaz.');
-                return;
-            }
-            const reader = new FileReader();
-            reader.onloadend = () => {
-                uploadedImageBase64 = reader.result.split(',')[1];
-                imagePreview.src = reader.result;
-                imagePreview.classList.remove('hidden');
-                uploadPrompt.classList.add('hidden');
-                hideError();
-            };
-            reader.readAsDataURL(file);
-        }
-        
-        // --- FORM GÖNDERİMİ ---
-        mainForm.addEventListener('submit', async (e) => {
-            e.preventDefault();
-
-            setLoadingState(true);
-            hideError();
-            resultsContainer.classList.remove('hidden');
-            resultsContainer.classList.add('fade-in');
-
-            try {
-                if (currentMode === 'dream') {
-                    const dreamText = dreamInput.value.trim();
-                    if (!dreamText) {
-                        showError("Lütfen yorumlanacak bir rüya girin.");
-                        setLoadingState(false); return;
-                    }
-                    await Promise.all([
-                        fetchDreamInterpretation(dreamText),
-                        fetchVisualInterpretation(dreamText, 'dream')
-                    ]);
-                } else { // Kahve ve El Falı Modları
-                    if (!uploadedImageBase64) {
-                        const errorMsg = currentMode === 'coffee' ? "Lütfen fal için bir fincan fotoğrafı yükleyin." : "Lütfen el falı için bir avuç içi fotoğrafı yükleyin.";
-                        showError(errorMsg);
-                        setLoadingState(false); return;
-                    }
-                    
-                    let interpretationText;
-                    if (currentMode === 'coffee') {
-                        interpretationText = await fetchCoffeeFortune(uploadedImageBase64);
-                    } else if (currentMode === 'palm') {
-                        interpretationText = await fetchPalmReading(uploadedImageBase64);
-                    }
-
-                    if (interpretationText) {
-                        await fetchVisualInterpretation(interpretationText, currentMode);
-                    }
-                }
-            } catch (err) {
-                 console.error("Bir hata oluştu:", err);
-                 if (err.message && err.message.includes('429')) {
-                    showError("API kullanım kotanız doldu. Lütfen bir süre bekleyip tekrar deneyin. Bu hata genellikle ücretsiz kullanım limitlerine ulaşıldığında ortaya çıkar.");
-                 } else {
-                    showError("İstek sırasında bir sorun oluştu. Lütfen tekrar deneyin.");
-                 }
-                 setLoadingState(false);
-            }
-        });
-        
-        // --- YARDIMCI FONKSİYONLAR ---
-        function showError(message) { errorMessage.textContent = message; errorMessage.classList.remove('hidden'); }
-        function hideError() { errorMessage.classList.add('hidden'); }
-        function setLoadingState(isLoading) {
-            submitButton.disabled = isLoading;
-            if (isLoading) {
-                buttonText.textContent = 'İşleniyor...';
-                textLoader.classList.remove('hidden');
-                imageLoader.classList.remove('hidden');
-                textResult.classList.add('hidden');
-                imageResult.classList.add('hidden');
-            } else {
-                buttonText.textContent = 'Yorumla ve Görselleştir';
-            }
-        }
-        
-        async function fetchWithRetry(url, payload, maxRetries = 3) {
-            let attempt = 0;
-            while (attempt < maxRetries) {
-                try {
-                    const response = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
-                    if (!response.ok) { 
-                        console.error("API Error Body:", await response.text());
-                        throw new Error(`HTTP error! status: ${response.status}`); 
-                    }
-                    return await response.json();
-                } catch (error) {
-                    console.warn(`Attempt ${attempt + 1} failed. Retrying...`, error);
-                    attempt++;
-                    if (attempt >= maxRetries) { throw error; }
-                    await new Promise(resolve => setTimeout(resolve, 1000 * Math.pow(2, attempt)));
-                }
-            }
-        }
-        
-        // --- API ÇAĞRILARI ---
-        async function fetchDreamInterpretation(dreamText) {
-            const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-05-20:generateContent?key=${apiKey}`;
-            const fullPrompt = `Sen pratik ve gerçekçi bir rüya yorumcususun. Şu rüyayı modern psikolojik ve yaygın sembolik anlamlara dayanarak analiz et: "${dreamText}". Yorumun kısa, öz ve tek bir paragraf olmalı. Spekülatif veya aşırı manevi yorumlardan kaçın. Odak noktan rüyanın, rüyayı gören kişinin mevcut yaşam durumu veya duygusal haliyle ilgili ne anlama gelebileceği olsun. Cevabın mutlaka Türkçe olmalı.`;
-            const payload = { contents: [{ parts: [{ text: fullPrompt }] }] };
-            try {
-                const result = await fetchWithRetry(apiUrl, payload);
-                const interpretation = result.candidates?.[0]?.content?.parts?.[0]?.text;
-                if (!interpretation) throw new Error("Geçerli bir yorum alınamadı.");
-                textResult.innerHTML = interpretation.replace(/\n/g, '<br>');
-            } catch (error) {
-                console.error('Yorum alınırken hata:', error);
-                textResult.textContent = 'Rüyanız yorumlanırken bir hata oluştu.';
-                throw error;
-            } finally {
-                textLoader.classList.add('hidden');
-                textResult.classList.remove('hidden');
-                if (currentMode === 'dream') checkCompletion();
-            }
-        }
-
-        async function fetchCoffeeFortune(base64Image) {
-            const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-05-20:generateContent?key=${apiKey}`;
-            const prompt = "Sen usta bir kahve falcısısın. Bu kahve fincanı fotoğrafını çok dikkatli incele. Fincanın dibinde, kenarlarında veya tabağında gördüğün belirli şekilleri (örneğin: 'fincanın kenarında bir kuş figürü görüyorum', 'tabağın ortasında bir yol belirmiş') tek tek belirterek yorumla. Bu şekillerin ne anlama geldiğini açıkla. Yorumun detaylı, umut verici ve pozitif bir tonda olsun. Cevabın mutlaka Türkçe olmalı.";
-            const payload = { contents: [ { parts: [ {text: prompt}, { inlineData: { mimeType: "image/jpeg", data: base64Image } } ] } ] };
-            try {
-                const result = await fetchWithRetry(apiUrl, payload);
-                const fortuneText = result.candidates?.[0]?.content?.parts?.[0]?.text;
-                if (!fortuneText) throw new Error("Geçerli bir fal yorumu alınamadı.");
-                textResult.innerHTML = fortuneText.replace(/\n/g, '<br>');
-                return fortuneText;
-            } catch (error) {
-                console.error('Fal yorumu alınırken hata:', error);
-                textResult.textContent = 'Falınız yorumlanırken bir hata oluştu.';
-                throw error;
-            } finally {
-                textLoader.classList.add('hidden');
-                textResult.classList.remove('hidden');
-            }
-        }
-        
-        async function fetchPalmReading(base64Image) {
-            const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-05-20:generateContent?key=${apiKey}`;
-            const prompt = "Sen uzman bir el falcısısın. Bu avuç içi fotoğrafını çok dikkatli analiz et. Fotoğraftaki ana çizgileri (hayat çizgisi, akıl çizgisi, kalp çizgisi) ve diğer önemli tepeleri, işaretleri (örneğin: 'Venüs tepesi dolgun görünüyor', 'hayat çizgisinde bir kırılma var') tek tek belirterek yorumla. Bu çizgilerin ve işaretlerin karakter, sağlık, aşk ve kariyerle ilgili ne anlama geldiğini açıkla. Yorumun detaylı, pozitif ve yol gösterici bir tonda olsun. Cevabın mutlaka Türkçe olmalı.";
-            const payload = { contents: [ { parts: [ {text: prompt}, { inlineData: { mimeType: "image/jpeg", data: base64Image } } ] } ] };
-            try {
-                const result = await fetchWithRetry(apiUrl, payload);
-                const palmReadingText = result.candidates?.[0]?.content?.parts?.[0]?.text;
-                if (!palmReadingText) throw new Error("Geçerli bir el falı yorumu alınamadı.");
-                textResult.innerHTML = palmReadingText.replace(/\n/g, '<br>');
-                return palmReadingText;
-            } catch (error) {
-                console.error('El falı yorumu alınırken hata:', error);
-                textResult.textContent = 'El falınız yorumlanırken bir hata oluştu.';
-                throw error;
-            } finally {
-                textLoader.classList.add('hidden');
-                textResult.classList.remove('hidden');
-            }
-        }
-
-        async function fetchVisualInterpretation(text, type) {
-             const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-image-preview:generateContent?key=${apiKey}`;
-             
-             let promptText = '';
-             if (type === 'dream') {
-                promptText = `Create a high-quality, artistic, and dreamlike image that is a **literal and direct visual representation** of the following dream. The image must **strictly focus on the key subjects, environment, and actions** described in the text. **Do not add any elements, people, or concepts not mentioned in the dream.** Dream description: "${text}"`;
-             } else if (type === 'coffee') {
-                promptText = `Create a high-quality, artistic, and mystical image that is a **literal and direct visual representation** of the following coffee fortune. The image must **strictly focus on the key subjects, symbols, and concepts** described in the text. **Do not add any elements not mentioned in the fortune.** Fortune description: "${text}"`;
-             } else if (type === 'palm') {
-                promptText = `Create a high-quality, artistic, and symbolic image that is a **literal and direct visual representation** of the following palm reading. The image must **strictly focus on the key themes, destiny concepts, and symbols** (like heart, mind, life path) described in the text. **Do not add any elements not mentioned in the palm reading.** Palm reading description: "${text}"`;
-             }
-            
-            const payload = {
-                contents: [{
-                    parts: [{ text: promptText }]
-                }],
-                generationConfig: {
-                    responseModalities: ['IMAGE']
-                },
-            };
-             
-            try {
-                const result = await fetchWithRetry(apiUrl, payload);
-                const base64Data = result?.candidates?.[0]?.content?.parts?.find(p => p.inlineData)?.inlineData?.data;
-
-                if (!base64Data) {
-                    throw new Error("Görsel verisi alınamadı.");
-                }
-                imageResult.src = `data:image/png;base64,${base64Data}`;
-            } catch (error) {
-                console.error('Görsel oluşturulurken hata:', error);
-                imageResult.src = `https://placehold.co/512x512/f9a8d4/4c1d95?text=Hata`;
-                throw error;
-            } finally {
-                imageLoader.classList.add('hidden');
-                imageResult.classList.remove('hidden');
-                checkCompletion();
-            }
-        }
-        
-        function checkCompletion() {
-            if (!textLoader.classList.contains('hidden') || !imageLoader.classList.contains('hidden')) {
-                return;
-            }
-            setLoadingState(false);
-        }
-    </script>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="app.js?v=8"></script>
 </body>
 </html>
-
