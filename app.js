@@ -495,6 +495,10 @@
     'istanbul':   { url: 'https://sehirharitasi.ibb.gov.tr',       ad: 'İBB — Şehir Haritası / İmar' },
     'izmir':      { url: 'https://cbs.izmir.bel.tr',               ad: 'İzmir BB — CBS' },
     'kayseri':    { url: 'https://cbs.kayseri.bel.tr',             ad: 'Kayseri BB — CBS Kent Rehberi' },
+    'mersin':     { url: 'https://eplan.csb.gov.tr/e-plan/html/imarDurumu.html', ad: 'Mersin — e-Plan / İlçe e-İmar', districts: {
+      'mezitli': 'https://keos.mezitli.bel.tr/imardurumu/',
+      'yenisehir': 'https://keos.yenisehir.bel.tr/imardurumu/'
+    }},
     'mugla':      { url: 'https://cbs.mugla.bel.tr',               ad: 'Muğla BB — CBS' },
     'ordu':       { url: 'https://cbs.ordu.bel.tr',                ad: 'Ordu BB — Adres Bilgi Kartı' }
   };
@@ -557,19 +561,31 @@
          '<div class="hint" style="margin-top:8px">İlçeyi seç; belediyenin kendi portalı açılır. Portal içinde ada/parseli yeniden girmen gerekebilir.</div>');
   });
 
+  function selectedImarUrl() {
+    var k = $('imar-il').value, it = IMAR[k];
+    if (!it) return '';
+    var opt = $('imar-ilce').selectedOptions[0];
+    var dk = opt ? imarKey(opt.textContent) : '';
+    return (it.districts && it.districts[dk]) || it.url;
+  }
+
   $('imar-ilce').addEventListener('change', function () {
     var k = $('imar-il').value;
     var ilce = $('imar-ilce').selectedOptions[0];
     $('btn-imar').disabled = !k || !$('imar-ilce').value;
     if (k && ilce && $('imar-ilce').value) {
-      msg('<b>' + ilce.textContent + '</b> için ' + IMAR[k].ad + ' açılmaya hazır.', 'ok');
+      var u = selectedImarUrl(), özel = IMAR[k].districts && IMAR[k].districts[imarKey(ilce.textContent)];
+      show('<div class="ok"><b>' + ilce.textContent + '</b> e-İmar bağlantısı hazır.</div>' +
+        '<div class="kv"><span>Portal</span><span><b>' + (özel ? 'İlçe Belediyesi KEOS' : IMAR[k].ad) + '</b></span>' +
+        '<span>Adres</span><span class="coords">' + u + '</span></div>' +
+        (activeImarKey ? '<div class="ok">✓ Açık imar katmanı haritada gösteriliyor.</div>' : '<div class="hint">Bu ilçe için dışarıdan kullanılabilen açık WMS bulunamadı; resmî portala yönlendirilir.</div>'));
     }
   });
 
   $('btn-imar').addEventListener('click', function () {
-    var k = $('imar-il').value;
-    if (!k) { msg('e-imar için il seç.', 'err'); return; }
-    window.open(IMAR[k].url, '_blank');
+    var u = selectedImarUrl();
+    if (!u) { msg('e-imar için il ve ilçe seç.', 'err'); return; }
+    window.open(u, '_blank');
   });
 
   initImar();
