@@ -314,68 +314,6 @@
   elAda.addEventListener('keydown', function (e) { if (e.key === 'Enter') elParsel.focus(); });
   elParsel.addEventListener('keydown', function (e) { if (e.key === 'Enter') sorgula(); });
 
-  // ---- ada listele: adadaki tüm parselleri tara ----
-  var layerAda = L.geoJSON(null, {
-    style: { color: '#d9822b', weight: 2, fillColor: '#d9822b', fillOpacity: 0.12 }
-  }).addTo(map);
-
-  function adaListele() {
-    var mah = elMah.value, ada = elAda.value.trim();
-    if (!mah) { msg('Önce mahalle seç.', 'err'); return; }
-    if (!ada) { msg('Ada numarasını gir.', 'err'); return; }
-
-    layerAda.clearLayers();
-    var limit = parseInt($('ada-limit').value || '250', 10); // kullanıcı seçimi
-    var found = [];
-    var done = 0, idx = 0, active = 0, MAXP = 6;   // eşzamanlı istek
-    var bar = '<div class="hint">Ada <b>' + ada + '</b> taranıyor… <span id="pcount">0</span> parsel</div>';
-
-    busy(true, bar);
-
-    function next() {
-      while (active < MAXP && idx < limit) {
-        idx++; active++;
-        (function (n) {
-          var path = 'parsel/' + mah + '/' + ada + '/' + n;
-          req(path, function (err, d) {
-            if (!err && d && d.properties) { found.push(d); }
-            active--; done++;
-            var pc = document.getElementById('pcount');
-            if (pc) pc.textContent = found.length;
-            if (done >= Math.min(idx, limit) && idx >= limit && active === 0) finish();
-            else if (idx < limit) next();
-            else if (active === 0 && idx >= limit) finish();
-          });
-        })(idx);
-      }
-      if (idx >= limit && active === 0) finish();
-    }
-
-    var finished = false;
-    function finish() {
-      if (finished) return;
-      finished = true;
-      busy(false);
-      found.forEach(function (f) { layerAda.addData(f); });
-      if (found.length) {
-        try { map.fitBounds(layerAda.getBounds().pad(0.15)); } catch (e) {}
-      }
-      var top = found.reduce(function (a, b) {
-        return (parseFloat(String(b.properties.alan).replace(',', '.')) || 0) >
-               (parseFloat(String(a.properties.alan).replace(',', '.')) || 0) ? b : a;
-      }, found[0] || { properties: {} });
-      show('<div class="ok"><b>' + ada + '</b> adasında <b>' + found.length +
-           '</b> parsel bulundu (1–' + limit + ' tarandı).</div>' +
-           (found.length ? '<div class="kv"><span>En büyük</span><span><b>' +
-             (top.properties.ozet || '—') + '</b> · ' + fmt(top.properties.alan) + ' m²</span></div>' : '') +
-           '<div class="hint" style="margin-top:6px">Turuncu poligonlar bu adadaki parseller. Tek tek görmek için parsel no gir.</div>');
-    }
-
-    next();
-  }
-
-  $('btn-ada').addEventListener('click', adaListele);
-
   // ---- koordinat sorgu ----
   function koordSor() {
     var la = parseFloat(elLat.value.replace(',', '.')),
@@ -443,7 +381,6 @@
   $('btn-clear').addEventListener('click', function () {
     layerMahalle.clearLayers(); layerParsel.clearLayers(); layerMulti.clearLayers();
     measureLayer.clearLayers(); measurePts=[]; toolMode=null; currentGeo=null;
-    if (typeof layerAda !== 'undefined') layerAda.clearLayers();
     if (marker) { map.removeLayer(marker); marker = null; }
     elIl.value = ''; fill(elIlce, [], 'İlçe…'); fill(elMah, [], 'Mahalle…');
     elAda.value = ''; elParsel.value = '';
@@ -483,7 +420,20 @@
     navigator.geolocation.getCurrentPosition(function (p) {
       elLat.value = p.coords.latitude.toFixed(7); elLon.value = p.coords.longitude.toFixed(7);
       busy(false); tab('coord'); koordSor();
-    }, function (e) { busy(false); msg('Konum alınamadı: ' + e.message, 'err'); }, {enableHighAccuracy:true, timeout:15000});
+    }, function (e) {
+      busy(false);
+      if (e.code === 1) {
+        show('<div class="err"><b>Konum izni reddedildi.</b></div>' +
+          '<div class="hint" style="font-size:12px;line-height:1.7">' +
+          'Safari’de adres çubuğundaki <b>Sayfa Menüsü (aA/üç çizgi)</b> → <b>Web Sitesi Ayarları</b> → <b>Konum</b> → <b>İzin Ver</b> seç.<br>' +
+          'Olmazsa: iPhone <b>Ayarlar → Gizlilik ve Güvenlik → Konum Servisleri → Safari Web Siteleri → Uygulamayı Kullanırken</b>. ' +
+          '<b>Tam Konum</b> açık olmalı.</div>' +
+          '<button id="gps-retry" style="margin-top:8px">GPS’yi Tekrar Dene</button>');
+        setTimeout(function(){ var r=$('gps-retry'); if(r) r.onclick=function(){$('btn-gps').click();}; },0);
+      } else if (e.code === 2) msg('Konum belirlenemedi. GPS/Wi‑Fi açık olmalı.', 'err');
+      else if (e.code === 3) msg('Konum isteği zaman aşımına uğradı. Tekrar dene.', 'err');
+      else msg('Konum alınamadı: ' + e.message, 'err');
+    }, {enableHighAccuracy:true, timeout:20000, maximumAge:0});
   };
 
   function hav(a,b){ var R=6371000, r=Math.PI/180, p1=a.lat*r,p2=b.lat*r,dp=(b.lat-a.lat)*r,dl=(b.lng-a.lng)*r; var q=Math.sin(dp/2)**2+Math.cos(p1)*Math.cos(p2)*Math.sin(dl/2)**2; return 2*R*Math.asin(Math.sqrt(q)); }
@@ -526,6 +476,11 @@
 
   function centerOfCurrent(){ if(!currentGeo)return null; try{return L.geoJSON(currentGeo).getBounds().getCenter();}catch(e){return null;} }
   $('btn-google').onclick = function(){var c=centerOfCurrent()||map.getCenter();window.open('https://www.google.com/maps/search/?api=1&query='+c.lat+','+c.lng,'_blank');};
+  $('btn-street').onclick = function(){
+    var c=centerOfCurrent();
+    if(!c){msg('Street View için önce bir parsel sorgula.','err');return;}
+    window.open('https://www.google.com/maps/@?api=1&map_action=pano&viewpoint='+c.lat+','+c.lng,'_blank');
+  };
   $('btn-tkgm').onclick = function(){window.open('https://parselsorgu.tkgm.gov.tr/','_blank');};
 
   // ---- e-İmar: doğrulanmış belediye imar/CBS portalları ----
@@ -584,6 +539,7 @@
         ilceSel.innerHTML = '<option value="genel">İl geneli</option>';
         ilceSel.disabled = false; $('btn-imar').disabled = false; return;
       }
+      fitGeom(il, 0.18);
       req('idariYapi/ilceListe/' + il.properties.id, function (e2, d2) {
         ilceSel.innerHTML = '<option value="">İlçe seç…</option>';
         (d2 && d2.features || []).forEach(function (f) {
@@ -619,6 +575,8 @@
   initImar();
 
   // ---- başlat ----
+  setTimeout(function(){ var s=document.getElementById('splash'); if(s)s.classList.add('hide'); }, 900);
+  setTimeout(function(){ var s=document.getElementById('splash'); if(s)s.style.display='none'; }, 1550);
   setTimeout(function () { map.invalidateSize(); }, 300);
   window.addEventListener('resize', function () { map.invalidateSize(); });
   map.on('click', function (e) {
