@@ -6,14 +6,14 @@
             parsel/{mahalleId}/{adaNo}/{parselNo}
             parsel/{lat}/{lon}
 
-   v16 düzeltmeleri
-   - Ölçüm katmanı / mod değişkenleri artık "Temizle" düğmesinden ÖNCE tanımlı (eski sürümde Temizle hata veriyordu).
-   - Bilgi paneli sabit yükseklik aldı: parsel bilgisi gelince harita tamamen kaybolmuyor, kendi içinde kaydırılıyor.
-   - Çubuk satır satır akıyor: dar ekranda seçiciler/butonlar taşmıyor, "Temizle" görünür kalıyor.
+   v17 düzeltmeleri
+   - Bilgi paneli artık haritanın ALTINDA değil, SAĞINDA ayrı bölme. Parsel bilgisi gelince harita kapanmıyor/küçülmüyor;
+     bölme kendi içinde kayıyor, harita yerinde kalıyor (Leaflet sadece genişlik değişince yeniden ölçülür).
+   - Bölme kapatılabiliyor (× / ▸) — harita tüm alanı kaplar.
+   - Ölçüm katmanı değişkenleri "Temizle"den önce tanımlı (eski sürümde Temizle hata veriyordu).
+   - Çubuk satır satır akıyor: dar ekranda düğmeler taşmıyor.
    - Servisten gelen metinler HTML olarak yorumlanmadan yazılıyor (kaçış).
-   - Mobil: GPS düğmesi kaldırıldı (güvenli bağlam dışında çalışmıyor), koordinat sorgusu doğrudan GPS ile başlıyor.
-   - İndirme: koordinat/favori sorgusundan sonra da çalışıyor; tam ekran açılmazsa aynı sekmede indiriyor.
-   - Haritayı daralt/aç düğmeleri, bağlantı adresi güncellenir, ilçe sınırına odaklanma, e-İmar seçili ilçe ile açılır.
+   - İndirme koordinat/favori sorgusunda da çalışıyor; bağlantı adresi (#ada=…) paylaşılabilir.
 */
 (function () {
   'use strict';
@@ -25,7 +25,7 @@
   var elIl = $('il'), elIlce = $('ilce'), elMah = $('mah'),
       elAda = $('ada'), elParsel = $('parsel'),
       elLat = $('lat'), elLon = $('lon'),
-      elInfo = $('info'), elSp = $('sp');
+      elInfo = $('info'), elSp = $('sp'), elMap = $('map'), elBar = $('bar');
   var infoInner = elInfo ? (elInfo.querySelector('.inner') || elInfo) : null;
 
   function esc(v) {
@@ -34,13 +34,12 @@
       .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
   }
 
-  // ---- uzunluk birimi (km / mil) ----
+  // ---- uzunluk birimi ----
   var UNIT = (localStorage.getItem('p360-unit') === 'mi') ? 'mi' : 'km';
   function lenText(m) {
     var v = UNIT === 'mi' ? m / 1609.344 : m / 1000;
     return fmt(v, v < 10 ? 3 : 2) + ' ' + UNIT;
   }
-  function unitLabel() { return UNIT === 'mi' ? 'mi' : 'km'; }
 
   // ---- harita ----
   var map = L.map('map', {
@@ -75,7 +74,6 @@
 
   var ALL = [googleSat, googleHyb, esriSat, esriLbl, osmStreet];
   function clearBase() { ALL.forEach(function (l) { if (map.hasLayer(l)) map.removeLayer(l); }); }
-
   function setBasemap(mode) {
     clearBase();
     if (mode === 'hd') { googleSat.addTo(map); googleHyb.addTo(map); }
@@ -102,17 +100,17 @@
     style: { color: '#ffd43b', weight: 2, fillColor: '#ffd43b', fillOpacity: 0.10 }
   }).addTo(map);
 
-  // Ölçüm ve araç durumu — "Temizle" bunları kullandığı için ÖNCE tanımlanır.
+  // Ölçüm/araç durumu — "Temizle" kullandığı için ÖNCE tanımlanır.
   var toolMode = null, measurePts = [], measureLayer = L.layerGroup().addTo(map), wmsLayer = null;
 
   var currentGeo = null;
   var currentLookup = null;
   var marker = null;
 
-  // ---- yardımcılar ----
   var cache = {};
   var state = { mahId: null, ada: null, parsel: null };
 
+  // ---- yardımcılar ----
   function fmt(n, d) {
     if (n === undefined || n === null || n === '') return '—';
     d = (d === undefined) ? 2 : d;
@@ -126,15 +124,21 @@
     if (text !== undefined) show(text);
   }
 
-  function show(html) { if (infoInner) infoInner.innerHTML = html; }
-  function msg(t, cls) { show('<div class="' + (cls || 'msg') + '">' + t + '</div>'); }
-
-  // Bilgi mesajı ile ulaşılan zoom/harita görünür kalsın: mesaj paneli büyütmez, kaydırır.
-  function showKeepMap(html) {
-    show(html);
+  function show(html) {
+    if (!infoInner) return;
+    infoInner.innerHTML = html;
     elInfo.scrollTop = 0;
-    syncLayout();
   }
+  function msg(t, cls) { show('<div class="' + (cls || 'msg') + '">' + t + '</div>'); }
+  function title(t) { return '<div class="infohd"><span class="t">' + esc(t) + '</span>' +
+    '<button id="btn-side-hide" class="sec x" title="Bölmeyi gizle">×</button></div>'; }
+  function bindHide() {
+    var b = $('btn-side-hide');
+    if (b) b.onclick = function () { setSide(false); };
+    elInfo.scrollTop = 0;
+  }
+  function showInfo(t, html) { show(title(t) + html); bindHide(); }
+  function showMsg(t, html) { show(html); bindHide(); }
 
   function req(path, cb) {
     if (cache[path]) { cb(null, cache[path]); return; }
@@ -181,16 +185,13 @@
   // ---- harita yardımcıları ----
   function fitGeom(geojson, pad) {
     try {
-      var l = L.geoJSON(geojson);
-      var b = l.getBounds();
+      var b = L.geoJSON(geojson).getBounds();
       if (b.isValid()) map.fitBounds(b.pad(pad === undefined ? 0.15 : pad), { animate: true });
     } catch (e) {}
   }
-
   function boundsOf(geojson) {
     try { return L.geoJSON(geojson).getBounds(); } catch (e) { return null; }
   }
-
   function centerOfCurrent() {
     if (!currentGeo) return null;
     try {
@@ -199,36 +200,38 @@
     } catch (e) { return null; }
   }
 
-  // ---- düzen: bilgi paneli yüksekliği + harita boyutu ----
-  function syncLayout() {
-    var lh = parseInt(getComputedStyle(document.documentElement).getPropertyValue('--hdr-h'), 10) || 64;
-    var barH = $('bar') ? $('bar').offsetHeight : 150;
-    var avail = window.innerHeight - lh - barH - (window.matchMedia('(min-width:800px)').matches ? 28 : 0);
-    var infoMin = parseInt(getComputedStyle(document.documentElement).getPropertyValue('--info-min'), 10) || 104;
-    var mapMin = window.matchMedia('(max-width:760px)').matches ? 200 : 240;
-    // haritaya en az mapMin kalacak şekilde bilgi panelinin üst sınırı
-    var cap = Math.max(infoMin, avail - mapMin);
-    var h = Math.min(Math.max(elInfo.scrollHeight, infoMin), Math.min(window.innerHeight * 0.56, cap));
-    document.documentElement.style.setProperty('--info-h', h + 'px');
-    if (map) map.invalidateSize();
+  // ---- düzen: yalnızca gerçek boyut değişiminde yeniden ölç ----
+  var lastW = 0, lastH = 0;
+  function syncMap() {
+    if (!elMap || !map) return;
+    var r = elMap.getBoundingClientRect();
+    if (Math.abs(r.width - lastW) < 2 && Math.abs(r.height - lastH) < 2) return;
+    lastW = r.width; lastH = r.height;
+    map.invalidateSize();
   }
 
-  $('btn-map-collapse').onclick = function () {
-    var m = $('map');
-    m.classList.add('collapsed');
-    $('btn-map-restore').style.display = 'grid';
-    syncLayout();
-  };
-  function expandMap() {
-    var m = $('map');
-    m.classList.remove('collapsed');
-    $('btn-map-restore').style.display = 'none';
-    syncLayout();
+  // ---- sağ bilgi bölmesi ----
+  var sideOpen = localStorage.getItem('p360-side') !== '0';
+  function setSide(open, noStore) {
+    sideOpen = open;
+    if (!noStore) { try { localStorage.setItem('p360-side', open ? '1' : '0'); } catch (e) {} }
+    if (open) {
+      elInfo.style.display = '';
+      $('btn-side-toggle').textContent = '▸';
+      $('btn-side-toggle').title = 'Bilgi bölmesini gizle';
+      $('btn-side-show').style.display = 'none';
+    } else {
+      elInfo.style.display = 'none';
+      $('btn-side-toggle').textContent = '◂';
+      $('btn-side-toggle').title = 'Bilgi bölmesini göster';
+      $('btn-side-show').style.display = '';
+    }
+    setTimeout(syncMap, 60);
   }
-  $('btn-map-restore').onclick = expandMap;
-  $('map').querySelector('.collapsed-bar').onclick = expandMap;
+  $('btn-side-toggle').onclick = function () { setSide(!sideOpen); };
+  $('btn-side-show').onclick = function () { setSide(true); };
 
-  // ---- köşe bağlantısı (adres çubuğu) ----
+  // ---- adres çubuğu ----
   function readHash() {
     try { return new URLSearchParams(location.hash.replace(/^#/, '')); } catch (e) { return null; }
   }
@@ -243,9 +246,9 @@
     busy(true, 'İller yükleniyor…');
     req('idariYapi/ilListe', function (err, d) {
       busy(false);
-      if (err) { msg('İl listesi alınamadı: ' + esc(err), 'err'); return; }
+      if (err) { showMsg('İl listesi', '<div class="err">İl listesi alınamadı: ' + esc(err) + '</div>'); return; }
       fill(elIl, d.features || [], 'İl…');
-      showKeepMap('<div class="ok">81 il yüklendi. İl seç.</div>');
+      showMsg('Parsel bilgisi', '<div class="ok">81 il yüklendi. İl seç.</div>');
     });
   }
 
@@ -268,9 +271,9 @@
     busy(true, 'İlçeler yükleniyor…');
     req('idariYapi/ilceListe/' + id, function (err, d) {
       busy(false);
-      if (err) { msg('İlçe listesi alınamadı: ' + esc(err), 'err'); return; }
+      if (err) { showMsg('Parsel bilgisi', '<div class="err">İlçe listesi alınamadı: ' + esc(err) + '</div>'); return; }
       fill(elIlce, d.features || [], 'İlçe…');
-      showKeepMap('<div class="ok"><b>' + esc(selectedName) + '</b> — ' + (d.features || []).length + ' ilçe. İlçe seç.</div>');
+      showMsg('Parsel bilgisi', '<div class="ok"><b>' + esc(selectedName) + '</b> — ' + (d.features || []).length + ' ilçe. İlçe seç.</div>');
     });
   });
 
@@ -283,12 +286,12 @@
     busy(true, 'Mahalleler yükleniyor…');
     req('idariYapi/mahalleListe/' + id, function (err, d) {
       busy(false);
-      if (err) { msg('Mahalle listesi alınamadı: ' + esc(err), 'err'); return; }
+      if (err) { showMsg('Parsel bilgisi', '<div class="err">Mahalle listesi alınamadı: ' + esc(err) + '</div>'); return; }
       fill(elMah, d.features || [], 'Mahalle…');
       var nm = elIlce.selectedOptions[0] ? elIlce.selectedOptions[0].textContent : '';
-      showKeepMap('<div class="ok"><b>' + esc(nm) + '</b> — ' + (d.features || []).length + ' mahalle. Mahalle seç, sonra ada/parsel gir.</div>');
+      showMsg('Parsel bilgisi', '<div class="ok"><b>' + esc(nm) + '</b> — ' + (d.features || []).length + ' mahalle. Mahalle seç, sonra ada/parsel gir.</div>');
       var f = (d.features || [])[0];
-      if (f && f.geometry) fitGeom(f, 0.25);      // ilçe merkezine yakınlaş
+      if (f && f.geometry) fitGeom(f, 0.25);
     });
   });
 
@@ -300,34 +303,49 @@
     busy(true, 'Mahalle sınırı getiriliyor…');
     req('idariYapi/mahalleListe/' + elIlce.value, function (err, d) {
       busy(false);
-      if (err || !d) { msg('Mahalle sınırı alınamadı: ' + esc(err || ''), 'err'); return; }
+      if (err || !d) { showMsg('Parsel bilgisi', '<div class="err">Mahalle sınırı alınamadı: ' + esc(err || '') + '</div>'); return; }
       var f = (d.features || []).filter(function (x) { return String(x.properties.id) === String(id); })[0];
       var name = elMah.selectedOptions[0] ? elMah.selectedOptions[0].textContent : '';
-      if (!f) { msg('Mahalle sınırı bulunamadı.', 'err'); return; }
+      if (!f) { showMsg('Parsel bilgisi', '<div class="err">Mahalle sınırı bulunamadı.</div>'); return; }
       layerMahalle.clearLayers();
       layerMahalle.addData(f);
       fitGeom(f, 0.12);
       var b = boundsOf(f), c = b ? b.getCenter() : null;
-      showKeepMap('<div class="ok"><b>' + esc(name) + '</b> mahallesi haritada.</div>' +
-           '<div class="hint">Şimdi <b>Ada</b> ve <b>Parsel</b> girip Sorgula\'ya bas. ' +
-           'Merkez: ' + (c ? (c.lat.toFixed(5) + ', ' + c.lng.toFixed(5)) : '—') + '</div>');
+      showMsg('Mahalle', '<div class="ok"><b>' + esc(name) + '</b> mahallesi haritada.</div>' +
+        '<div class="hint">Şimdi <b>Ada</b> ve <b>Parsel</b> girip Sorgula\'ya bas. Merkez: ' +
+        (c ? (c.lat.toFixed(5) + ', ' + c.lng.toFixed(5)) : '—') + '</div>');
       if (c) { elLat.value = c.lat.toFixed(6); elLon.value = c.lng.toFixed(6); }
     });
   });
 
-  // ---- parsel çizimi ----
-  function lookupUrl(lookup) {
+  // ---- parsel ----
+  function lookupUrl(lookup, fmtq) {
     if (!lookup) return null;
-    var p = lookup.p || {};
-    if (lookup.type === 'coord') return API + 'parsel/' + lookup.lat + '/' + lookup.lon;
-    if (lookup.type === 'sa' && p.adaNo && p.parselNo) {
-      return API + 'parsel/download/' + ((p.mahalleId || state.mahId) || '') + '/' + p.adaNo + '/' + p.parselNo + '/';
+    var p = lookup.p || {}, base = null;
+    if (lookup.type === 'coord') {
+      base = API + 'parsel/' + lookup.lat + '/' + lookup.lon;
+      return fmtq ? API + 'parsel/download/' + idOf(p, lookup) + '/' + fmtq : base;
     }
+    if (lookup.type === 'sa') {
+      var mh = (p.mahalleId !== undefined && p.mahalleId !== null && p.mahalleId !== '') ? p.mahalleId : lookup.mahId;
+      if ((mh === undefined || mh === null || mh === '') && p.id) mh = String(p.id).split('_')[0];
+      if (mh === undefined || mh === null || mh === '') return null;
+      base = API + 'parsel/' + mh + '/' + lookup.ada + '/' + lookup.parsel;
+      return fmtq ? API + 'parsel/download/' + mh + '/' + lookup.ada + '/' + lookup.parsel + '/' + fmtq : base;
+    }
+    return null;
+  }
+  function idOf(p, lookup) {
+    if (p && p.id !== undefined && p.id !== null && p.id !== '') return String(p.id).split('_')[0];
+    if (lookup && lookup.mahId) return lookup.mahId;
+    if (state.mahId && lookup && lookup.ada && lookup.parsel) return state.mahId;
     return null;
   }
 
   function drawParsel(geojson, source) {
-    if (!geojson || (!geojson.geometry && !geojson.properties)) { msg('Parsel bulunamadı.', 'err'); return; }
+    if (!geojson || (!geojson.geometry && !geojson.properties)) {
+      showMsg('Parsel bilgisi', '<div class="err">Parsel bulunamadı.</div>'); return;
+    }
     currentGeo = geojson;
     if ($('multi').checked && geojson.geometry) {
       layerMulti.addData(geojson);
@@ -368,36 +386,29 @@
         else if (a && a.forEach) a.forEach(walk);
       })(geojson.geometry.coordinates);
       if (flat.length) {
-        html += '<div class="coords" style="margin-top:6px">' +
-                flat.length + ' nokta • ilk: ' + flat[0].map(function (x) { return x.toFixed(6); }).join(', ') +
-                '</div>';
-        html += '<div class="hint" style="margin-top:4px">Köşe sayısının yarısı kadarı kenar; alan yukarıda ' +
-                fmt(p.alan) + ' m².</div>';
+        html += '<div class="coords" style="margin-top:7px">' + flat.length + ' nokta • ilk: ' +
+                flat[0].map(function (x) { return x.toFixed(6); }).join(', ') + '</div>';
       }
     }
-    // indirme adresi her tür sorguda hazır
-    var u = lookupUrl(currentLookup);
+
+    var u = lookupUrl(currentLookup, null);
     if (u) {
-      html += '<div class="hint" style="margin-top:6px">İndirme: <a href="' + esc(u + 'json') + '" download>GeoJSON</a>' +
-              ' · <a href="' + esc(u + 'kml') + '" download>KML</a>' +
-              ' · <a href="' + esc(u + 'dxf') + '" download>DXF</a>' +
-              ' · <a href="' + esc(u + 'shp') + '" download>SHP</a>' +
-              ' <span class="hint">(tarayıcı açmazsa sağ tık → Hedefi farklı kaydet)</span></div>';
+      html += '<div class="hint" style="margin-top:8px">Servis kaydı: <span class="coords">' + esc(u) + '</span></div>';
     }
-    showKeepMap(html);
+    showInfo('Parsel bilgisi', html);
   }
 
   function sorgula() {
     var mahId = elMah.value, ada = elAda.value.trim(), parsel = elParsel.value.trim();
-    if (!mahId) { msg('Önce mahalle seç.', 'err'); return; }
-    if (!ada || !parsel) { msg('Ada ve parsel numarasını gir (ör. 1559 / 883).', 'err'); return; }
+    if (!mahId) { showMsg('Parsel bilgisi', '<div class="err">Önce mahalle seç.</div>'); return; }
+    if (!ada || !parsel) { showMsg('Parsel bilgisi', '<div class="err">Ada ve parsel numarasını gir (ör. 1559 / 883).</div>'); return; }
 
     var path = 'parsel/' + mahId + '/' + ada + '/' + parsel;
-    busy(true, 'Parsel sorgulanıyor… ' + ada + '/' + parsel);
+    busy(true, title('Parsel bilgisi') + '<div class="msg">Parsel sorgulanıyor… ' + esc(ada + '/' + parsel) + '</div>');
     req(path, function (err, d) {
       busy(false);
       if (err || !d) {
-        msg('<b>' + esc(ada) + '/' + esc(parsel) + '</b> bulunamadı.<br><span class="hint">' + esc(err || 'Kayıt yok') + '</span>', 'err');
+        showMsg('Parsel bilgisi', '<div class="err"><b>' + esc(ada) + '/' + esc(parsel) + '</b> bulunamadı.<br><span class="hint">' + esc(err || 'Kayıt yok') + '</span></div>');
         return;
       }
       currentLookup = { type: 'sa', p: d.properties || {}, mahId: mahId, ada: ada, parsel: parsel };
@@ -410,20 +421,19 @@
   elAda.addEventListener('keydown', function (e) { if (e.key === 'Enter') elParsel.focus(); });
   elParsel.addEventListener('keydown', function (e) { if (e.key === 'Enter') sorgula(); });
 
-  // ---- koordinat sorgu ----
+  // ---- koordinat ----
   function koordSor() {
     var la = parseFloat(String(elLat.value).replace(',', '.')),
         lo = parseFloat(String(elLon.value).replace(',', '.'));
-    if (isNaN(la) || isNaN(lo)) { msg('Geçerli enlem/boylam gir.', 'err'); return; }
-    if (la < 35 || la > 43 || lo < 25 || lo > 46) { msg('Koordinat Türkiye sınırları dışında (enlem 35-43, boylam 25-46).', 'err'); return; }
+    if (isNaN(la) || isNaN(lo)) { showMsg('Parsel bilgisi', '<div class="err">Geçerli enlem/boylam gir.</div>'); return; }
+    if (la < 35 || la > 43 || lo < 25 || lo > 46) { showMsg('Parsel bilgisi', '<div class="err">Koordinat Türkiye sınırları dışında (enlem 35-43, boylam 25-46).</div>'); return; }
 
-    var path = 'parsel/' + la + '/' + lo;
-    busy(true, 'Koordinat sorgulanıyor…');
-    req(path, function (err, d) {
+    busy(true, title('Parsel bilgisi') + '<div class="msg">Koordinat sorgulanıyor…</div>');
+    req('parsel/' + la + '/' + lo, function (err, d) {
       busy(false);
-      if (err || !d) { msg('Bu noktada parsel yok.<br><span class="hint">' + esc(err || '') + '</span>', 'err'); return; }
+      if (err || !d) { showMsg('Parsel bilgisi', '<div class="err">Bu noktada parsel yok.<br><span class="hint">' + esc(err || '') + '</span></div>'); return; }
       layerMahalle.clearLayers();
-      if (marker) { map.removeLayer(marker); }
+      if (marker) map.removeLayer(marker);
       marker = L.circleMarker([la, lo], { radius: 6, color: '#d9822b', weight: 3, fillColor: '#fff', fillOpacity: 1 }).addTo(map);
       currentLookup = { type: 'coord', lat: la, lon: lo, p: d.properties || {} };
       drawParsel(d, 'parsel/' + la + '/' + lo);
@@ -440,7 +450,7 @@
       var b = $('tb-' + k);
       if (b) b.className = (k === which) ? 'on' : 'sec';
     });
-    syncLayout();
+    setTimeout(syncMap, 60);
   }
   $('tb-adm').addEventListener('click', function () { tab('adm'); });
   $('tb-coord').addEventListener('click', function () { tab('coord'); });
@@ -461,22 +471,16 @@
     });
   });
 
-  function indir(fmt) {
-    var p = (currentLookup && currentLookup.p) || {};
-    var id = null, i;
-    if (currentLookup && currentLookup.type === 'sa') {
-      var mh = (p.mahalleId !== undefined && p.mahalleId !== null) ? p.mahalleId : state.mahId;
-      if (mh !== undefined && mh !== null && mh !== '') id = mh + '/' + currentLookup.ada + '/' + currentLookup.parsel;
-      else if (p.id !== undefined && p.id !== null) id = String(p.id).split('_')[0];
-    } else if (currentLookup && currentLookup.type === 'coord') {
-      if (p.id !== undefined && p.id !== null) id = String(p.id).split('_')[0];
-    }
-    if (!id) { msg('İndirmek için ada/parsel sorgula ya da haritadan bir parsel seç.', 'err'); return; }
-
-    var u = API + 'parsel/download/' + id + '/' + fmt;
-    showKeepMap('<div class="ok">İndiriliyor: <b>' + esc(String(fmt).toUpperCase()) + '</b>' +
-      '<div class="hint" style="margin-top:6px">' + esc(u) + '</div>' +
-      '<div class="hint">Dosya yeni sekmede açılmazsa: <a href="' + esc(u) + '" target="_blank" rel="noopener">buraya dokun</a></div></div>');
+  function indir(fmtq) {
+    var u = lookupUrl(currentLookup, fmtq);
+    if (!u) { showMsg('İndirme', '<div class="err">İndirmek için ada/parsel sorgula ya da haritadan bir parsel seç.</div>'); return; }
+    showInfo('İndirme', '<div class="ok">Hazır: <b>' + esc(String(fmtq).toUpperCase()) + '</b></div>' +
+      '<div class="coords" style="margin-top:6px">' + esc(u) + '</div>' +
+      '<div class="hint" style="margin-top:6px">Dosya açılmazsa <a href="' + esc(u) + '" target="_blank" rel="noopener">buraya dokun</a> ya da sağ tık → “Hedefi farklı kaydet”.</div>' +
+      '<div class="hint" style="margin-top:4px">Diğerleri: ' +
+      ['kml', 'json', 'dxf', 'shp'].map(function (f) {
+        return '<a href="' + esc(lookupUrl(currentLookup, f)) + '">' + f.toUpperCase() + '</a>';
+      }).join(' · ') + '</div>');
     window.open(u, '_blank');
   }
 
@@ -492,20 +496,18 @@
     setAutoImar(null);
     map.setView([39.0, 35.3], 6);
     setHash({});
-    showKeepMap('<div class="ok">Temizlendi.</div>');
+    showMsg('Parsel bilgisi', '<div class="ok">Temizlendi.</div>');
   });
 
-  // ---- favoriler / ölçüm / WMS / dış bağlantılar ----
+  // ---- favoriler ----
   var FAV_KEY = 'kadastro-favoriler';
   function readFavs() {
     try { return JSON.parse(localStorage.getItem(FAV_KEY) || '[]'); } catch (e) { return []; }
   }
   function writeFavs(arr) {
-    try { localStorage.setItem(FAV_KEY, JSON.stringify(arr)); } catch (e) {
-      msg('Favoriler kaydedilemedi (tarayıcı depolaması dolu olabilir).', 'err');
-    }
+    try { localStorage.setItem(FAV_KEY, JSON.stringify(arr)); }
+    catch (e) { showMsg('Favoriler', '<div class="err">Favoriler kaydedilemedi (depolama dolu olabilir).</div>'); }
   }
-
   function renderFavs() {
     var arr = readFavs();
     $('favlist').innerHTML = arr.length ? arr.map(function (x, i) {
@@ -525,59 +527,56 @@
   $('btn-tools').onclick = function () {
     $('toolpanel').classList.toggle('on');
     renderFavs();
-    setTimeout(function () { map.invalidateSize(); syncLayout(); }, 50);
+    setTimeout(syncMap, 60);
   };
   $('btn-fav').onclick = function () {
-    if (!currentGeo) { msg('Önce bir parsel sorgula.', 'err'); return; }
+    if (!currentGeo) { showMsg('Favoriler', '<div class="err">Önce bir parsel sorgula.</div>'); return; }
     var arr = readFavs(), p = currentGeo.properties || {};
     if (!arr.some(function (x) { return x.ozet === p.ozet; })) arr.push({ ozet: p.ozet, alan: p.alan, geo: currentGeo });
     writeFavs(arr); renderFavs();
-    showKeepMap('<div class="ok">' + esc(p.ozet || 'Parsel') + ' favorilere eklendi.</div>');
+    showMsg('Favoriler', '<div class="ok">' + esc(p.ozet || 'Parsel') + ' favorilere eklendi.</div>');
   };
   $('multi').onchange = function () { if (!this.checked) layerMulti.clearLayers(); };
+
   $('btn-help').onclick = function () {
-    showKeepMap(
-      '<div class="ok"><b>Kısa kullanım</b></div>' +
-      '<div class="kv">' +
-      '<span>Ada/parsel</span><span><b>İdari</b> sekmesi → İl → İlçe → Mahalle → Ada + Parsel → <b>Sorgula</b></span>' +
-      '<span>Haritadan</span><span>Haritaya dokun: o noktanın parseli ve bilgileri gelir (Koordinat sekmesi).</span>' +
-      '<span>Ölçüm</span><span><b>Ölç</b> → haritada noktaları işaretle → <b>Ölçümü Bitir</b>. Mesafe/Aan seçilebilir.</span>' +
-      '<span>İndirme</span><span><b>İndir ▾</b> → KML / GeoJSON / DXF / SHP. Bilgi panelinde de hazır bağlantılar var.</span>' +
+    showInfo('Nasıl kullanılır', '<div class="kv">' +
+      '<span>Ada/parsel</span><span><b>İdari</b> → İl → İlçe → Mahalle → Ada + Parsel → <b>Sorgula</b></span>' +
+      '<span>Haritadan</span><span>Haritaya dokun: o noktanın parseli ve bilgileri sağda gelir.</span>' +
+      '<span>Ölçüm</span><span><b>Ölç</b> → noktaları işaretle → <b>Ölçümü Bitir</b> (Mesafe/Alan).</span>' +
+      '<span>İndirme</span><span><b>İndir ▾</b> → KML / GeoJSON / DXF / SHP.</span>' +
       '<span>Favori</span><span><b>☆ Favori</b> ile sakla, <b>Araçlar</b> içinden geri çağır.</span>' +
-      '<span>e-İmar</span><span>Yetkili belediyeler için portalı açar; bazı illerde imar planı katmanı haritaya bindirilir.</span>' +
-      '<span>Harita</span><span>Bilgi paneli uzun olduğunda harita daralır; <b>▾</b> ile daralt, <b>▴</b> ile geri aç.</span>' +
+      '<span>e-İmar</span><span>Yetkili belediyelerin portalını açar; bazı illerde imar katmanı haritaya bindirilir.</span>' +
+      '<span>Bölme</span><span>Sağ bölmeyi <b>×</b> ile gizle, haritanın köşesindeki <b>▸/◂</b> ile geri getir.</span>' +
       '</div>');
   };
 
-  // ---- GPS / ölçüm ----
+  // ---- GPS ----
   var hasGeo = !!(navigator.geolocation && (window.isSecureContext || location.protocol === 'https:' || location.hostname === 'localhost'));
   if (hasGeo) {
-    $('btn-gps').style.display = '';
     $('btn-gps').onclick = function () {
-      busy(true, 'GPS konumu alınıyor…');
+      busy(true, title('Parsel bilgisi') + '<div class="msg">GPS konumu alınıyor…</div>');
+      bindHide();
       navigator.geolocation.getCurrentPosition(function (p) {
         elLat.value = p.coords.latitude.toFixed(7); elLon.value = p.coords.longitude.toFixed(7);
         busy(false); tab('coord'); koordSor();
       }, function (e) {
         busy(false);
         if (e.code === 1) {
-          showKeepMap('<div class="err"><b>Konum izni reddedildi.</b></div>' +
-            '<div class="hint" style="font-size:12px;line-height:1.7">' +
-            'Safari’de adres çubuğundaki <b>Sayfa Menüsü (aA/üç çizgi)</b> → <b>Web Sitesi Ayarları</b> → <b>Konum</b> → <b>İzin Ver</b> seç.<br>' +
-            'Olmazsa: iPhone <b>Ayarlar → Gizlilik ve Güvenlik → Konum Servisleri → Safari Web Siteleri → Uygulamayı Kullanırken</b>. ' +
-            '<b>Tam Konum</b> açık olmalı.</div>' +
+          showInfo('Konum izni', '<div class="err"><b>Konum izni reddedildi.</b></div>' +
+            '<div class="hint" style="line-height:1.7">Safari’de adres çubuğundaki <b>Sayfa Menüsü (aA)</b> → <b>Web Sitesi Ayarları</b> → <b>Konum</b> → <b>İzin Ver</b>.<br>' +
+            'Olmazsa: iPhone <b>Ayarlar → Gizlilik ve Güvenlik → Konum Servisleri → Safari Web Siteleri</b>.</div>' +
             '<button id="gps-retry" style="margin-top:8px">GPS’yi Tekrar Dene</button>');
           setTimeout(function () { var r = $('gps-retry'); if (r) r.onclick = function () { $('btn-gps').click(); }; }, 0);
-        } else if (e.code === 2) msg('Konum belirlenemedi. GPS/Wi‑Fi açık olmalı.', 'err');
-        else if (e.code === 3) msg('Konum isteği zaman aşımına uğradı. Tekrar dene.', 'err');
-        else msg('Konum alınamadı: ' + esc(e.message), 'err');
+        } else if (e.code === 2) showMsg('Parsel bilgisi', '<div class="err">Konum belirlenemedi. GPS/Wi-Fi açık olmalı.</div>');
+        else if (e.code === 3) showMsg('Parsel bilgisi', '<div class="err">Konum isteği zaman aşımına uğradı. Tekrar dene.</div>');
+        else showMsg('Parsel bilgisi', '<div class="err">Konum alınamadı: ' + esc(e.message) + '</div>');
       }, { enableHighAccuracy: true, timeout: 20000, maximumAge: 0 });
     };
   } else {
-    // Güvenli bağlam yok: GPS düğmesini gösterip yanlış yönlendirmek yerine koordinat alanına yönlendir.
     $('btn-gps').style.display = 'none';
   }
 
+  // ---- ölçüm ----
   function hav(a, b) {
     var R = 6371000, r = Math.PI / 180, p1 = a.lat * r, p2 = b.lat * r,
         dp = (b.lat - a.lat) * r, dl = (b.lng - a.lng) * r;
@@ -606,23 +605,23 @@
   $('btn-measure').onclick = function () {
     $('toolpanel').classList.add('on');
     toolMode = 'measure'; measurePts = []; updateMeasure();
-    showKeepMap('<div class="ok">Haritada ölçüm noktalarına dokun. Sonra <b>Ölçümü Bitir</b>.</div>');
+    showMsg('Ölçüm', '<div class="ok">Haritada ölçüm noktalarına dokun. Sonra <b>Ölçümü Bitir</b>.</div>');
   };
-  $('btn-measure-clear').onclick = function () { toolMode = null; measurePts = []; measureLayer.clearLayers(); showKeepMap('<div class="ok">Ölçüm temizlendi.</div>'); };
+  $('btn-measure-clear').onclick = function () { toolMode = null; measurePts = []; measureLayer.clearLayers(); showMsg('Ölçüm', '<div class="ok">Ölçüm temizlendi.</div>'); };
   $('btn-measure-finish').onclick = function () {
     var typ = $('measure-type').value;
     if (typ === 'area') {
       if (measurePts.length > 2) L.polygon(measurePts, { color: '#ff5c8a', fillOpacity: .15 }).addTo(measureLayer);
-      showKeepMap('<div class="ok">Yaklaşık alan: <b>' + fmt(polyArea(measurePts)) + ' m²</b></div>');
+      showMsg('Ölçüm', '<div class="ok">Yaklaşık alan: <b>' + fmt(polyArea(measurePts)) + ' m²</b></div>');
     } else {
       var d = 0;
       for (var i = 1; i < measurePts.length; i++) d += hav(measurePts[i - 1], measurePts[i]);
-      showKeepMap('<div class="ok">Yaklaşık mesafe: <b>' + lenText(d) + '</b> (' + fmt(d) + ' m)</div>');
+      showMsg('Ölçüm', '<div class="ok">Yaklaşık mesafe: <b>' + lenText(d) + '</b> <span class="hint">(' + fmt(d) + ' m)</span></div>');
     }
     toolMode = null;
   };
 
-  // ---- doğrulanmış açık imar servisleri ----
+  // ---- açık imar servisleri ----
   var IMAR_LAYERS = {
     ankara: {
       title: 'Ankara 1/1000 Uygulama İmar Planı',
@@ -636,7 +635,7 @@
     if (wmsLayer) { map.removeLayer(wmsLayer); wmsLayer = null; }
     activeImarKey = (key && IMAR_LAYERS[key]) ? key : null;
     var b = $('btn-auto-imar'), s = $('wms-status');
-    if (!activeImarKey || !b || !s) return;
+    if (!b || !s) return;
     if (!activeImarKey) {
       b.disabled = true; b.textContent = 'İmar katmanı yok'; b.style.background = '';
       s.textContent = 'Bu il için doğrulanmış açık WMS/ArcGIS imar servisi bulunamadı.';
@@ -656,7 +655,7 @@
     if (wmsLayer) { map.removeLayer(wmsLayer); wmsLayer = null; }
     $('btn-auto-imar').textContent = activeImarKey ? 'İmar katmanını aç' : 'İmar katmanı yok';
     $('btn-auto-imar').style.background = '';
-    showKeepMap('<div class="ok">İmar katmanı kapatıldı.</div>');
+    showMsg('İmar katmanı', '<div class="ok">İmar katmanı kapatıldı.</div>');
   };
 
   $('btn-google').onclick = function () {
@@ -665,12 +664,12 @@
   };
   $('btn-street').onclick = function () {
     var c = centerOfCurrent();
-    if (!c) { msg('Street View için önce bir parsel sorgula.', 'err'); return; }
+    if (!c) { showMsg('Street View', '<div class="err">Street View için önce bir parsel sorgula.</div>'); return; }
     window.open('https://www.google.com/maps/@?api=1&map_action=pano&viewpoint=' + c.lat + ',' + c.lng, '_blank');
   };
   $('btn-tkgm').onclick = function () { window.open('https://parselsorgu.tkgm.gov.tr/', '_blank'); };
 
-  // ---- e-İmar: doğrulanmış belediye portalları ----
+  // ---- e-İmar portalları ----
   var IMAR = {
     'adana':     { url: 'https://keos.adana.bel.tr',              ad: 'Adana BB — KEOS İmar Sorgu' },
     'ankara':    { url: 'https://eimar.ankara.bel.tr',            ad: 'Ankara BB — CBSIMAR e-İmar' },
@@ -695,7 +694,7 @@
       .replace(/\s+/g, '');
   }
 
-  function initImar() {
+  (function initImar() {
     var sel = $('imar-il');
     if (!sel) return;
     var keys = Object.keys(IMAR).sort(function (a, b) { return IMAR[a].ad.localeCompare(IMAR[b].ad, 'tr'); });
@@ -705,7 +704,7 @@
       o.value = k; o.textContent = IMAR[k].ad.split('—')[0].trim();
       sel.appendChild(o);
     });
-  }
+  })();
 
   $('imar-il').addEventListener('change', function () {
     var k = $('imar-il').value;
@@ -714,7 +713,7 @@
     ilceSel.innerHTML = '<option value="">İlçe yükleniyor…</option>';
     ilceSel.disabled = true;
     $('btn-imar').disabled = true;
-    if (!k) { ilceSel.innerHTML = '<option value="">İlçe…</option>'; msg('e-imar için il seç.', 'err'); return; }
+    if (!k) { ilceSel.innerHTML = '<option value="">İlçe…</option>'; showMsg('e-İmar', '<div class="err">e-imar için il seç.</div>'); return; }
     var it = IMAR[k];
 
     req('idariYapi/ilListe', function (err, d) {
@@ -738,10 +737,10 @@
       });
     });
 
-    showKeepMap('<div class="ok"><b>' + esc(it.ad) + '</b></div>' +
-         '<div class="kv"><span>Kurum</span><span><b>' + esc(it.ad.split('—')[0].trim()) + '</b></span>' +
-         '<span>Adres</span><span><a href="' + esc(it.url) + '" target="_blank" rel="noopener">' + esc(it.url) + '</a></span></div>' +
-         '<div class="hint" style="margin-top:8px">İlçeyi seç; belediyenin kendi portalı açılır. Portal içinde ada/parseli yeniden girmen gerekebilir.</div>');
+    showInfo('e-İmar', '<div class="ok"><b>' + esc(it.ad) + '</b></div>' +
+      '<div class="kv"><span>Kurum</span><span><b>' + esc(it.ad.split('—')[0].trim()) + '</b></span>' +
+      '<span>Adres</span><span><a href="' + esc(it.url) + '" target="_blank" rel="noopener">' + esc(it.url) + '</a></span></div>' +
+      '<div class="hint" style="margin-top:8px">İlçeyi seç; belediyenin kendi portalı açılır. Portal içinde ada/parseli yeniden girmen gerekebilir.</div>');
   });
 
   function selectedImarUrl() {
@@ -758,7 +757,7 @@
     $('btn-imar').disabled = !k || !$('imar-ilce').value;
     if (k && ilce && $('imar-ilce').value) {
       var u = selectedImarUrl(), ozel = IMAR[k].districts && IMAR[k].districts[imarKey(ilce.textContent)];
-      showKeepMap('<div class="ok"><b>' + esc(ilce.textContent) + '</b> e-İmar bağlantısı hazır.</div>' +
+      showInfo('e-İmar', '<div class="ok"><b>' + esc(ilce.textContent) + '</b> e-İmar bağlantısı hazır.</div>' +
         '<div class="kv"><span>Portal</span><span><b>' + esc(ozel ? 'İlçe Belediyesi KEOS' : IMAR[k].ad) + '</b></span>' +
         '<span>Adres</span><span class="coords">' + esc(u) + '</span></div>' +
         (activeImarKey ? '<div class="ok">✓ Açık imar katmanı haritada gösteriliyor.</div>'
@@ -768,11 +767,9 @@
 
   $('btn-imar').addEventListener('click', function () {
     var u = selectedImarUrl();
-    if (!u) { msg('e-imar için il ve ilçe seç.', 'err'); return; }
+    if (!u) { showMsg('e-İmar', '<div class="err">e-imar için il ve ilçe seç.</div>'); return; }
     window.open(u, '_blank');
   });
-
-  initImar();
 
   // ---- haritaya tıklama ----
   map.on('click', function (e) {
@@ -781,7 +778,7 @@
       var typ = $('measure-type').value, val = 0;
       if (typ === 'distance') { for (var i = 1; i < measurePts.length; i++) val += hav(measurePts[i - 1], measurePts[i]); }
       else val = polyArea(measurePts);
-      showKeepMap('<div class="ok">' + (typ === 'distance' ? 'Mesafe: <b>' + lenText(val) + '</b>' : 'Alan: <b>' + fmt(val) + ' m²</b>') +
+      showMsg('Ölçüm', '<div class="ok">' + (typ === 'distance' ? 'Mesafe: <b>' + lenText(val) + '</b>' : 'Alan: <b>' + fmt(val) + ' m²</b>') +
         ' <span class="hint">· ' + measurePts.length + ' nokta</span></div>');
       return;
     }
@@ -795,26 +792,26 @@
   setTimeout(function () { var s = $('splash'); if (s) s.classList.add('hide'); }, 900);
   setTimeout(function () { var s = $('splash'); if (s) s.style.display = 'none'; }, 1550);
 
-  window.addEventListener('load', function () { setTimeout(syncLayout, 250); });
-  window.addEventListener('resize', function () { syncLayout(); });
-  window.addEventListener('orientationchange', function () { setTimeout(syncLayout, 250); });
-  if (window.ResizeObserver && infoInner) {
-    new ResizeObserver(function () { clearTimeout(window.__p360t); window.__p360t = setTimeout(syncLayout, 60); }).observe(infoInner);
+  window.addEventListener('load', function () { setTimeout(syncMap, 200); syncMap(); });
+  window.addEventListener('resize', function () { syncMap(); });
+  window.addEventListener('orientationchange', function () { setTimeout(syncMap, 250); });
+  if (window.ResizeObserver) {
+    var ro = new ResizeObserver(function () { clearTimeout(window.__p360t); window.__p360t = setTimeout(syncMap, 80); });
+    if (elMap) ro.observe(elMap);
+    if (elBar) ro.observe(elBar);
   }
 
+  setSide(sideOpen, true);
   loadIl();
-  setTimeout(syncLayout, 300);
-  syncLayout();
+  setTimeout(syncMap, 300);
 
-  // adres çubuğunda #il=..&ada=.. varsa uygula
+  // ---- paylaşılabilir adres (#ada=…) ----
   (function applyHash() {
     var h = readHash();
-    if (!h || !h.get('ada')) return;
+    if (!h || !h.get('ada') || !h.get('mah')) return;
     var ada = h.get('ada'), parsel = h.get('parsel');
     if (ada) elAda.value = ada;
     if (parsel) elParsel.value = parsel;
-    var mah = h.get('mah');
-    if (!mah) return;
     req('idariYapi/ilListe', function (e, d) {
       var il = d && (d.features || []).filter(function (f) { return String(f.properties.id) === String(h.get('il')); })[0];
       if (!il) return;
@@ -824,9 +821,9 @@
         if (!ilce) return;
         elIlce.value = ilce.properties.id;
         req('idariYapi/mahalleListe/' + ilce.properties.id, function (e3, d3) {
-          var ma = d3 && (d3.features || []).filter(function (f) { return String(f.properties.id) === String(mah); })[0];
+          var ma = d3 && (d3.features || []).filter(function (f) { return String(f.properties.id) === String(h.get('mah')); })[0];
           if (!ma) return;
-          fill(elMah, (d3.features || []), 'Mahalle…');
+          fill(elMah, d3.features || [], 'Mahalle…');
           elMah.value = ma.properties.id;
           sorgula();
         });
