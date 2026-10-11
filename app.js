@@ -212,7 +212,7 @@
   setTheme(localStorage.getItem('p360-theme') !== 'light', true);
 
   // ===================== MENÜLER =====================
-  var pops = ['dlpop', 'toolpop', 'li-menu', 'more-box'];
+  var pops = ['dlpop', 'toolpop', 'more-box'];
   function closePops(except) {
     pops.forEach(function (id) { var p = $(id); if (p && id !== except) p.classList.remove('on'); });
   }
@@ -225,13 +225,10 @@
   }
   $('btn-dl').onclick = function (e) { e.stopPropagation(); togglePop('dlpop'); };
   $('btn-tools').onclick = function (e) { e.stopPropagation(); togglePop('toolpop'); renderFavs(); };
-  $('btn-more').onclick = function (e) { e.stopPropagation(); togglePop('li-menu'); };
   $('btn-more2').onclick = function (e) { e.stopPropagation(); togglePop('more-box'); };
   document.addEventListener('click', function () { closePops(); });
-  pops.forEach(function (id) {
-    var p = $(id);
-    if (p) p.addEventListener('click', function (e) { e.stopPropagation(); });
-  });
+  // Menü içindeki eylemler document düzeyinde işlenir; burada propagation kesilmez.
+  // Aksi halde mobilde data-act/data-base düğmeleri hiç çalışmaz.
 
   // Araçlar / ⋯ menülerindeki ortak eylemler
   document.addEventListener('click', function (e) {
@@ -251,7 +248,7 @@
       else if (act === 'unit') { setUnit(UNIT === 'km' ? 'mi' : 'km'); }
       else if (act === 'google') { openGoogle(); closePops(); }
       else if (act === 'street') { openStreet(); closePops(); }
-      else if (act === 'tkgm') { window.open('https://parselsorgu.tkgm.gov.tr/', '_blank'); closePops(); }
+      else if (act === 'tkgm') { navigateExternal('https://parselsorgu.tkgm.gov.tr/'); closePops(); }
       else if (act === 'clear') { closePops(); $('btn-clear').click(); }
       else if (act === 'other') { closePops(); togglePop('more-box'); }
       else if (act === 'csv') { copyInfo(); }
@@ -703,14 +700,20 @@
     render('İmar katmanı', '<div class="ok">İmar katmanı kapatıldı.</div>');
   };
 
+  function navigateExternal(url) {
+    // iOS Safari'de window.open bazen açılır pencere olarak engellenir.
+    // Kullanıcı dokunuşu içinde aynı sekmeye yönlendirmek güvenilirdir.
+    window.location.assign(url);
+  }
   function openGoogle() {
-    var c = centerOfCurrent() || map.getCenter();
-    window.open('https://www.google.com/maps/search/?api=1&query=' + c.lat + ',' + c.lng, '_blank');
+    var c = centerOfCurrent();
+    if (!c) { render('Google Maps', '<div class="err">Google Maps için önce bir parsel sorgula.</div>'); return; }
+    navigateExternal('https://maps.google.com/?q=' + encodeURIComponent(c.lat + ',' + c.lng));
   }
   function openStreet() {
     var c = centerOfCurrent();
     if (!c) { render('Street View', '<div class="err">Street View için önce bir parsel sorgula.</div>'); return; }
-    window.open('https://www.google.com/maps/@?api=1&map_action=pano&viewpoint=' + c.lat + ',' + c.lng, '_blank');
+    navigateExternal('https://www.google.com/maps/@?api=1&map_action=pano&viewpoint=' + encodeURIComponent(c.lat + ',' + c.lng) + '&heading=0&pitch=0&fov=90');
   }
 
   // ===================== e-İMAR PORTALLARI =====================
@@ -804,7 +807,7 @@
   $('btn-imar').addEventListener('click', function () {
     var u = selectedImarUrl();
     if (!u) { render('e-İmar', '<div class="err">e-imar için il ve ilçe seç.</div>'); return; }
-    window.open(u, '_blank');
+    navigateExternal(u);
   });
 
   // ===================== HARİTA TIKLAMA =====================

@@ -59,12 +59,13 @@
   .more{display:none}
 
   /* ---------- açılır menüler ---------- */
-  .pop{position:absolute;top:calc(100% + 6px);z-index:1400;display:none;flex-direction:column;gap:4px;
+  .pop{position:absolute;top:calc(100% + 6px);z-index:9999;display:none;flex-direction:column;gap:4px;
+    pointer-events:auto;touch-action:manipulation;-webkit-user-select:none;user-select:none;
     background:rgba(9,23,33,.98);backdrop-filter:blur(18px);border:1px solid var(--line);border-radius:14px;
     padding:8px;box-shadow:0 18px 45px rgba(0,0,0,.5);animation:popIn .18s ease}
   .pop.on{display:flex}
   .pop .ttl{font-size:10px;letter-spacing:.8px;text-transform:uppercase;color:var(--muted);padding:3px 6px 5px}
-  .pop button{width:100%;justify-content:flex-start;text-align:left;display:flex;align-items:center;gap:8px;min-height:38px}
+  .pop button{width:100%;justify-content:flex-start;text-align:left;display:flex;align-items:center;gap:8px;min-height:42px;pointer-events:auto;touch-action:manipulation;position:relative;z-index:10000}
   .pop button small{color:var(--muted);font-weight:400;font-size:11px;margin-left:auto}
   .pop .grid2{display:grid;grid-template-columns:1fr 1fr;gap:4px}
   .pop label.chk{display:flex;align-items:center;gap:8px;color:var(--txt);font-size:13px;padding:7px 6px;border-radius:9px;cursor:pointer}
@@ -246,16 +247,6 @@
       <div id="favbox"></div>
     </div>
 
-    <div style="position:relative">
-      <button id="btn-more" class="sec more">⋯</button>
-    </div>
-    <div id="li-menu" class="pop">
-      <button data-act="google" class="sec wide">Google Maps</button>
-      <button data-act="street" class="sec wide">Street View</button>
-      <button data-act="tkgm" class="sec wide">TKGM Parsel Sorgu</button>
-      <button data-act="other" class="sec">…</button>
-    </div>
-
     <span class="sep wide"></span>
     <button id="btn-fav" class="sec wide">☆ Favori</button>
     <button id="btn-gps" class="sec wide">⌖ GPS</button>
@@ -263,7 +254,7 @@
     <button id="btn-clear" class="sec wide">Temizle</button>
 
     <div style="position:relative" class="more">
-      <button id="btn-more2" class="sec">⋯ Diğer</button>
+      <button id="btn-more2" class="sec">Harita ▾</button>
       <div id="more-box" class="pop">
         <button data-act="google" class="sec">Google Maps</button>
         <button data-act="street" class="sec">Street View</button>
@@ -302,6 +293,6 @@
 </div>
 
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-<script src="app.js?v=18"></script>
+<script src="app.js?v=19"></script>
 </body>
 </html>
