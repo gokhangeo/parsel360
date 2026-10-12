@@ -3,9 +3,12 @@
 <head>
 <meta charset="utf-8">
 <meta name="referrer" content="no-referrer">
-<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+<meta name="theme-color" content="#071018">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icon.svg" type="image/svg+xml">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <title>Parsel360 — Kadastro ve İmar Haritası</title>
-<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin=""/>
 <style>
   :root{
     --bg:#071018; --panel:rgba(13,27,38,.94);
@@ -152,6 +155,21 @@
   @keyframes pulse{70%{box-shadow:0 0 0 7px rgba(67,231,165,0)}100%{box-shadow:0 0 0 0 rgba(67,231,165,0)}}
   @keyframes brandFloat{0%,100%{transform:rotate(-3deg) translateY(0)}50%{transform:rotate(-3deg) translateY(-2px)}}
   @keyframes popIn{from{opacity:0;transform:translateY(-6px) scale(.98)}to{opacity:1;transform:none}}
+  .mlabel{pointer-events:none}
+  .mlb{position:absolute;transform:translate(-50%,-50%);white-space:nowrap;font-size:11px;font-weight:600;color:#fff;background:rgba(9,23,33,.88);border:1px solid var(--line);border-radius:6px;padding:1px 5px}
+  details summary{cursor:pointer;color:var(--muted);font-size:12px}
+  button:focus-visible,select:focus-visible,input:focus-visible,summary:focus-visible{outline:2px solid #6db3ff;outline-offset:2px}
+  @media(max-width:620px){select,input{font-size:16px}}
+  @media print{
+    html,body{overflow:visible;height:auto;background:#fff!important;color:#000}
+    #splash,#bar,.app-header,#btn-side-toggle,#measurebox,.leaflet-control-zoom,#map .legend,.infohd button,.dltabs{display:none!important}
+    #app{display:block;height:auto;padding:0}
+    #body{display:block}
+    #map{height:430px;border:1px solid #888;border-radius:0}
+    #info{display:block!important;position:static;width:auto;overflow:visible;background:#fff;border:0;box-shadow:none;color:#000}
+    #info b,#info .kv span,.infohd .t,.coords,.hint{color:#000!important}
+    .ok{color:#0a7a4d}
+  }
 </style>
 </head>
 <body>
@@ -176,35 +194,41 @@
       <button id="tb-adm" class="on">İdari</button>
       <button id="tb-coord" class="sec">Koordinat</button>
       <button id="tb-imar" class="sec">e-İmar</button>
+      <button id="tb-geo" class="sec">Adres</button>
     </div>
 
     <div class="pane on" id="pane-adm">
-      <select id="il" class="grow"><option value="">İl…</option></select>
-      <select id="ilce" class="grow" disabled><option value="">İlçe…</option></select>
-      <select id="mah" class="grow" disabled><option value="">Mahalle…</option></select>
-      <input id="ada" placeholder="Ada" inputmode="numeric">
-      <input id="parsel" placeholder="Parsel" inputmode="numeric">
+      <select id="il" aria-label="İl" class="grow"><option value="">İl…</option></select>
+      <select id="ilce" aria-label="İlçe" class="grow" disabled><option value="">İlçe…</option></select>
+      <select id="mah" aria-label="Mahalle" class="grow" disabled><option value="">Mahalle…</option></select>
+      <input id="ada" aria-label="Ada no" placeholder="Ada" inputmode="numeric">
+      <input id="parsel" aria-label="Parsel no" placeholder="Parsel" inputmode="numeric">
       <button id="btn-sorgu">Sorgula</button>
     </div>
 
     <div class="pane" id="pane-coord">
-      <input id="lat" placeholder="Enlem" value="37.0012" style="width:104px">
-      <input id="lon" placeholder="Boylam" value="35.3213" style="width:104px">
+      <input id="lat" aria-label="Enlem" placeholder="Enlem" value="37.0012" style="width:104px">
+      <input id="lon" aria-label="Boylam" placeholder="Boylam" value="35.3213" style="width:104px">
       <button id="btn-coord">Bul</button>
       <span class="hint">haritaya dokununca da sorgular</span>
     </div>
 
     <div class="pane" id="pane-imar">
-      <select id="imar-il" class="grow"><option value="">İl…</option></select>
-      <select id="imar-ilce" class="grow" disabled><option value="">İlçe…</option></select>
+      <select id="imar-il" aria-label="e-İmar ili" class="grow"><option value="">İl…</option></select>
+      <select id="imar-ilce" aria-label="e-İmar ilçesi" class="grow" disabled><option value="">İlçe…</option></select>
       <button id="btn-imar" class="wide" disabled>e-İmar Aç</button>
       <button id="btn-auto-imar" class="sec wide" disabled>İmar katmanı yok</button>
       <button id="btn-wms-clear" class="sec">Katmanı Kapat</button>
     </div>
 
+    <div class="pane" id="pane-geo">
+      <input id="geo-q" aria-label="Adres ara" class="grow" style="width:auto" placeholder="Mahalle, cadde veya yer adı" autocomplete="off">
+      <button id="btn-geo">Ara</button>
+    </div>
+
     <span class="sep wide"></span>
 
-    <select id="base" class="wide" style="flex:0 1 180px;min-width:150px">
+    <select id="base" aria-label="Temel harita" class="wide" style="flex:0 1 180px;min-width:150px">
       <option value="hd">HD Uydu + Cadde</option>
       <option value="sat">Esri Uydu + Sınır</option>
       <option value="cadde">Salt Cadde/Sokak</option>
@@ -245,6 +269,8 @@
       <label class="chk"><input id="dark-on" type="checkbox" checked> Koyu tema</label>
       <div class="ttl" style="padding-top:7px">Favoriler</div>
       <div id="favbox"></div>
+      <div class="grid2"><button data-act="favexp" class="sec">Dışa aktar</button><button data-act="favimp" class="sec">İçe aktar</button></div>
+      <input id="fav-file" type="file" accept="application/json,.json" style="display:none">
     </div>
 
     <span class="sep wide"></span>
@@ -277,6 +303,7 @@
       <div id="measurebox">
         <select id="measure-type"><option value="distance">Mesafe</option><option value="area">Alan</option></select>
         <b id="measure-read">0</b>
+        <button id="btn-measure-undo" class="sec">Geri</button>
         <button id="btn-measure-finish" class="sec">Bitir</button>
         <button id="btn-measure-clear" class="sec">Sil</button>
       </div>
@@ -292,7 +319,8 @@
   </div>
 </div>
 
-<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-<script src="app.js?v=19"></script>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
+<script src="app.js?v=20"></script>
+<script>if ("serviceWorker" in navigator) navigator.serviceWorker.register("sw.js").catch(function(){});</script>
 </body>
 </html>

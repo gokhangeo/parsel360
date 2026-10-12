@@ -4,6 +4,8 @@
             parsel/{mahalleId}/{adaNo}/{parselNo}
             parsel/{lat}/{lon}
 
+   v20: köşe koordinat/UTM/CSV, adres arama, çoklu seçim toplamı, ölçüm geri/etiket, favori yedek, PWA
+
    v18 değişiklikleri
    - Araç çubuğu tek satıra indi; İndir ve Araçlar artık düğmenin HEMEN ALTINDA açılan modern menüler
      (tek satır ölçüm paneli / favori listesi açıp çubuğu şişirmiyor).
@@ -48,6 +50,51 @@
     return fmt(v, v < 10 ? 3 : 2) + ' ' + UNIT;
   }
   function areaText(m2) { return fmt(m2) + ' m²'; }
+  var multiList = [], lastCorners = [], lastZone = 0;
+  function favKey(x) {
+    var p = (x.geo && x.geo.properties) || {};
+    return (p.mahalleId && p.adaNo && p.parselNo) ? p.mahalleId + '/' + p.adaNo + '/' + p.parselNo : (p.ozet || '');
+  }
+  // WGS84/GRS80 -> Transverse Mercator (TUREF/ITRF96 3° dilim, k0=1)
+  function toTM(lat, lon, lon0, k0) {
+    var a = 6378137, f = 1 / 298.257222101, e2 = f * (2 - f), ep2 = e2 / (1 - e2), r = Math.PI / 180;
+    var ph = lat * r, la = (lon - lon0) * r, s = Math.sin(ph), c = Math.cos(ph), t = Math.tan(ph);
+    var N = a / Math.sqrt(1 - e2 * s * s), T = t * t, C = ep2 * c * c, A = c * la;
+    var e4 = e2 * e2, e6 = e4 * e2;
+    var M = a * ((1 - e2 / 4 - 3 * e4 / 64 - 5 * e6 / 256) * ph - (3 * e2 / 8 + 3 * e4 / 32 + 45 * e6 / 1024) * Math.sin(2 * ph) +
+      (15 * e4 / 256 + 45 * e6 / 1024) * Math.sin(4 * ph) - (35 * e6 / 3072) * Math.sin(6 * ph));
+    var A2 = A * A, A3 = A2 * A, A4 = A2 * A2, A5 = A4 * A, A6 = A4 * A2;
+    return {
+      e: k0 * N * (A + (1 - T + C) * A3 / 6 + (5 - 18 * T + T * T + 72 * C - 58 * ep2) * A5 / 120) + 500000,
+      n: k0 * (M + N * t * (A2 / 2 + (5 - T + 9 * C + 4 * C * C) * A4 / 24 + (61 - 58 * T + T * T + 600 * C - 330 * ep2) * A6 / 720))
+    };
+  }
+  function outerRing(g) {
+    if (!g || !g.coordinates) return [];
+    var r = g.type === 'MultiPolygon' ? (g.coordinates[0] || [])[0] : g.coordinates[0];
+    if (!r || !r.length) return [];
+    r = r.slice();
+    if (r.length > 1 && r[0][0] === r[r.length - 1][0] && r[0][1] === r[r.length - 1][1]) r.pop();
+    return r;
+  }
+  function dms(v, pos, neg) {
+    var h = v >= 0 ? pos : neg; v = Math.abs(v);
+    var d = Math.floor(v), m = Math.floor((v - d) * 60), s = ((v - d) * 60 - m) * 60;
+    return d + '° ' + m + '′ ' + s.toFixed(2) + '″ ' + h;
+  }
+  function downloadBlob(txt, name, mime) {
+    var b = new Blob([txt], { type: mime + ';charset=utf-8' }), u = URL.createObjectURL(b), a = document.createElement('a');
+    a.href = u; a.download = name; document.body.appendChild(a); a.click(); document.body.removeChild(a);
+    setTimeout(function () { URL.revokeObjectURL(u); }, 1500);
+  }
+  function cornerCsv() {
+    if (!lastCorners.length) { render('CSV', '<div class="err">Önce bir parsel sorgula.</div>'); return; }
+    var p = (currentGeo && currentGeo.properties) || {};
+    var t = '\ufeffno;enlem;boylam;Y_TM' + lastZone + ';X_TM' + lastZone + '\n' + lastCorners.map(function (c) {
+      return [c.no, c.lat.toFixed(8), c.lon.toFixed(8), c.y.toFixed(3), c.x.toFixed(3)].join(';');
+    }).join('\n');
+    downloadBlob(t, 'parsel_' + (p.adaNo || '') + '_' + (p.parselNo || '') + '_koseler.csv', 'text/csv');
+  }
 
   // ===================== HARİTA + KATMANLAR =====================
   var map = L.map('map', {
@@ -252,7 +299,10 @@
       else if (act === 'clear') { closePops(); $('btn-clear').click(); }
       else if (act === 'other') { closePops(); togglePop('more-box'); }
       else if (act === 'csv') { copyInfo(); }
-      else if (act === 'print') { window.print(); }
+      else if (act === 'cornercsv') { cornerCsv(); }
+      else if (act === 'favexp') { favExport(); }
+      else if (act === 'favimp') { $('fav-file').click(); }
+      else if (act === 'print') { closePops(); setSide(true, true); setTimeout(function () { syncMap(); window.print(); }, 250); }
       else if (act === 'link') { copyLink(); }
       return;
     }
@@ -318,8 +368,9 @@
       fill(elMah, d.features || [], 'Mahalle…');
       var nm = elIlce.selectedOptions[0] ? elIlce.selectedOptions[0].textContent : '';
       showMsg(head('Parsel bilgisi') + '<div class="ok"><b>' + esc(nm) + '</b> — ' + (d.features || []).length + ' mahalle. Mahalle seç, sonra ada/parsel gir.</div>'); bind();
-      var f = (d.features || [])[0];
-      if (f && f.geometry) fitGeom(f, 0.25);
+      var ic = cache['idariYapi/ilceListe/' + elIl.value];
+      var ilceF = ic && (ic.features || []).filter(function (x) { return String(x.properties.id) === String(id); })[0];
+      fitGeom((ilceF && ilceF.geometry) ? ilceF : { type: 'FeatureCollection', features: d.features || [] }, 0.1);
     });
   });
 
@@ -353,6 +404,10 @@
   function lookupUrl(lookup, fmtq) {
     if (!lookup) return null;
     var p = lookup.p || {}, mh = null;
+    if (p.mahalleId && p.adaNo && p.parselNo) {
+      var pp = p.mahalleId + '/' + p.adaNo + '/' + p.parselNo;
+      return fmtq ? API + 'parsel/download/' + pp + '/' + fmtq : API + 'parsel/' + pp;
+    }
     if (lookup.type === 'coord' || lookup.type === 'fav') {
       mh = idOf(p, lookup);
       if (!mh) return null;
@@ -370,10 +425,16 @@
       render('Parsel bilgisi', '<div class="err">Parsel bulunamadı.</div>'); return;
     }
     currentGeo = geojson;
-    if ($('multi') && $('multi').checked && geojson.geometry) layerMulti.addData(geojson);
-    else {
-      layerParsel.clearLayers();
-      if (geojson.geometry) layerParsel.addData(geojson);
+    layerParsel.clearLayers();
+    if (geojson.geometry) {
+      layerParsel.addData(geojson);
+      if ($('multi') && $('multi').checked) {
+        var pk = favKey({ geo: geojson }), gp = geojson.properties || {};
+        if (!multiList.some(function (m) { return m.k === pk; })) {
+          multiList.push({ k: pk, ozet: gp.ozet, alan: parseFloat(String(gp.alan).replace(',', '.')) || 0 });
+          layerMulti.addData(geojson);
+        }
+      }
     }
     if (geojson.geometry) fitGeom(geojson, 0.35);
 
@@ -394,6 +455,8 @@
       ['Zemin Kmdurum', p.zeminKmdurum],
       ['Durum', String(p.durum) === '1' ? 'Aktif' : p.durum]
     ];
+    var cc = centerOfCurrent();
+    if (cc) rows.push(['Merkez', dms(cc.lat, 'K', 'G') + '  ' + dms(cc.lng, 'D', 'B')]);
     var html = '<div class="ok">Parsel bulundu — <span class="hint">' + esc(source) + '</span></div><div class="kv">';
     rows.forEach(function (r) {
       if (r[1] === undefined || r[1] === null || r[1] === '') return;
@@ -401,19 +464,26 @@
     });
     html += '</div>';
 
-    if (geojson.geometry && geojson.geometry.coordinates) {
-      var flat = [];
-      (function walk(a) {
-        if (typeof a[0] === 'number') flat.push(a);
-        else if (a && a.forEach) a.forEach(walk);
-      })(geojson.geometry.coordinates);
-      if (flat.length) {
-        html += '<div class="coords" style="margin-top:7px">' + flat.length + ' nokta • ilk: ' +
-                flat[0].map(function (x) { return x.toFixed(6); }).join(', ') + '</div>';
-      }
+    var ring = outerRing(geojson.geometry);
+    lastCorners = [];
+    if (ring.length) {
+      lastZone = Math.round(ring[0][0] / 3) * 3;
+      ring.forEach(function (c, i) {
+        var t = toTM(c[1], c[0], lastZone, 1);
+        lastCorners.push({ no: i + 1, lat: c[1], lon: c[0], y: t.e, x: t.n });
+      });
+      html += '<details style="margin-top:8px"><summary>Köşe koordinatları (' + ring.length + ') · TM ' + lastZone + '° ITRF96</summary>' +
+        '<div class="coords" style="max-height:190px;overflow:auto;margin-top:4px">' +
+        lastCorners.map(function (c) { return c.no + ' · Y ' + fmt(c.y, 2) + ' · X ' + fmt(c.x, 2); }).join('<br>') + '</div></details>';
+    }
+    if (multiList.length) {
+      var tot = multiList.reduce(function (s, m) { return s + m.alan; }, 0);
+      html += '<div class="ok" style="margin-top:8px">Seçili ' + multiList.length + ' parsel · toplam ' + esc(areaText(tot)) + '</div>' +
+        '<div class="hint">' + multiList.map(function (m) { return esc(m.ozet); }).join(' · ') + '</div>';
     }
     html += '<div class="dltabs">' +
       '<button class="sec" data-act="csv" style="grid-column:1/-1">Bilgileri kopyala</button>' +
+      '<button class="sec" data-act="cornercsv" style="grid-column:1/-1">Köşe koordinatlarını CSV indir</button>' +
       '<button class="sec" data-act="link">Bağlantıyı kopyala</button>' +
       '<button class="sec" data-act="print">Yazdır / PDF</button></div>';
 
@@ -459,6 +529,7 @@
       marker = L.circleMarker([la, lo], { radius: 6, color: '#d9822b', weight: 3, fillColor: '#fff', fillOpacity: 1 }).addTo(map);
       currentLookup = { type: 'coord', lat: la, lon: lo, p: d.properties || {} };
       drawParsel(d, 'parsel/' + la + '/' + lo);
+      setHash({ lat: la.toFixed(6), lon: lo.toFixed(6) });
     });
   }
   $('btn-coord').addEventListener('click', koordSor);
@@ -466,7 +537,7 @@
 
   // ===================== SEKMELER =====================
   function tab(which) {
-    ['adm', 'coord', 'imar'].forEach(function (k) {
+    ['adm', 'coord', 'imar', 'geo'].forEach(function (k) {
       var pane = $('pane-' + k);
       if (pane) pane.classList.toggle('on', k === which);
       var b = $('tb-' + k);
@@ -477,6 +548,31 @@
   $('tb-adm').onclick = function () { tab('adm'); };
   $('tb-coord').onclick = function () { tab('coord'); };
   $('tb-imar').onclick = function () { tab('imar'); };
+  $('tb-geo').onclick = function () { tab('geo'); };
+  function geoSearch() {
+    var q = $('geo-q').value.trim();
+    if (q.length < 3) { render('Adres ara', '<div class="err">En az 3 karakter yaz.</div>'); return; }
+    busy(true, head('Adres ara') + '<div class="msg">Aranıyor…</div>'); bind();
+    fetch('https://nominatim.openstreetmap.org/search?format=jsonv2&limit=6&countrycodes=tr&accept-language=tr&q=' + encodeURIComponent(q))
+      .then(function (r) { return r.json(); })
+      .then(function (a) {
+        busy(false);
+        if (!a.length) { render('Adres ara', '<div class="err">Sonuç bulunamadı. Mahalle, ilçe veya cadde adıyla dene.</div>'); return; }
+        render('Adres ara', a.map(function (x, i) {
+          return '<div class="favrow"><span>' + esc(x.display_name) + '</span><button class="sec" data-gi="' + i + '">Git</button></div>';
+        }).join(''));
+        Array.prototype.forEach.call(elInfo.querySelectorAll('[data-gi]'), function (b) {
+          b.onclick = function () {
+            var x = a[+b.dataset.gi];
+            elLat.value = (+x.lat).toFixed(6); elLon.value = (+x.lon).toFixed(6);
+            map.setView([+x.lat, +x.lon], 18); koordSor();
+          };
+        });
+      })
+      .catch(function () { busy(false); render('Adres ara', '<div class="err">Arama servisine ulaşılamadı. Bağlantını kontrol et.</div>'); });
+  }
+  $('btn-geo').onclick = geoSearch;
+  $('geo-q').addEventListener('keydown', function (e) { if (e.key === 'Enter') geoSearch(); });
 
   // ===================== İNDİRME =====================
   Array.prototype.forEach.call(document.querySelectorAll('#dlpop [data-fmt]'), function (b) {
@@ -514,7 +610,7 @@
 
   // ===================== TEMİZLE =====================
   $('btn-clear').onclick = function () {
-    layerMahalle.clearLayers(); layerParsel.clearLayers(); layerMulti.clearLayers();
+    layerMahalle.clearLayers(); layerParsel.clearLayers(); layerMulti.clearLayers(); multiList = []; lastCorners = [];
     measureLayer.clearLayers(); measurePts = []; toolMode = null; refreshMeasure();
     currentGeo = null; currentLookup = null; lastBook = null;
     if (marker) { map.removeLayer(marker); marker = null; }
@@ -554,13 +650,37 @@
   $('btn-fav').onclick = function () {
     if (!currentGeo) { render('Favoriler', '<div class="err">Önce bir parsel sorgula.</div>'); return; }
     var arr = readFavs(), p = currentGeo.properties || {};
-    if (!arr.some(function (x) { return x.ozet === p.ozet; })) arr.push({ ozet: p.ozet, alan: p.alan, geo: currentGeo });
+    if (!arr.some(function (x) { return favKey(x) === favKey({ geo: currentGeo }); })) arr.push({ ozet: p.ozet, alan: p.alan, geo: currentGeo });
     writeFavs(arr); renderFavs();
     render('Favoriler', '<div class="ok">' + esc(p.ozet || 'Parsel') + ' favorilere eklendi.</div>' +
       '<div class="hint" style="margin-top:6px">Araçlar ▾ → Favoriler listesinden geri çağırabilirsin.</div>');
   };
+  function favExport() {
+    var arr = readFavs();
+    if (!arr.length) { render('Favoriler', '<div class="err">Dışa aktarılacak favori yok.</div>'); return; }
+    downloadBlob(JSON.stringify(arr), 'parsel360-favoriler.json', 'application/json');
+  }
+  $('fav-file').onchange = function () {
+    var f = this.files && this.files[0], self = this, rd = new FileReader();
+    if (!f) return;
+    rd.onload = function () {
+      try {
+        var inc = JSON.parse(rd.result), arr = readFavs(), n = 0;
+        if (!Array.isArray(inc)) throw new Error('format');
+        inc.forEach(function (x) {
+          if (x && x.geo && x.geo.properties && !arr.some(function (y) { return favKey(y) === favKey(x); })) {
+            arr.push({ ozet: x.ozet, alan: x.alan, geo: x.geo }); n++;
+          }
+        });
+        writeFavs(arr); renderFavs();
+        render('Favoriler', '<div class="ok">' + n + ' favori içe aktarıldı.</div>');
+      } catch (e) { render('Favoriler', '<div class="err">Geçersiz favori dosyası.</div>'); }
+      self.value = '';
+    };
+    rd.readAsText(f);
+  };
   var multiEl = $('multi');
-  if (multiEl) multiEl.onchange = function () { if (!this.checked) layerMulti.clearLayers(); };
+  if (multiEl) multiEl.onchange = function () { if (!this.checked) { layerMulti.clearLayers(); multiList = []; } };
   var darkEl = $('dark-on');
   if (darkEl) darkEl.onchange = function () { setTheme(this.checked); };
 
@@ -637,6 +757,12 @@
     measurePts.forEach(function (p) {
       L.circleMarker(p, { radius: 4, color: '#fff', fillColor: '#ff5c8a', fillOpacity: 1 }).addTo(measureLayer);
     });
+    var ne = (typ === 'area' && measurePts.length > 2) ? measurePts.length : measurePts.length - 1;
+    for (var i = 0; i < ne; i++) {
+      var pa = measurePts[i], pb = measurePts[(i + 1) % measurePts.length];
+      L.marker([(pa.lat + pb.lat) / 2, (pa.lng + pb.lng) / 2], { interactive: false,
+        icon: L.divIcon({ className: 'mlabel', iconSize: [0, 0], html: '<span class="mlb">' + lenText(hav(pa, pb)) + '</span>' }) }).addTo(measureLayer);
+    }
     var v = measureValue();
     if (elMeasureRead) elMeasureRead.textContent = v.txt + ' · ' + v.n + ' nokta';
   }
@@ -648,6 +774,7 @@
   }
   $('btn-measure').onclick = startMeasure;
   $('measure-type').onchange = refreshMeasure;
+  $('btn-measure-undo').onclick = function () { measurePts.pop(); refreshMeasure(); };
   $('btn-measure-clear').onclick = function () {
     toolMode = null; measurePts = []; refreshMeasure();
     if (elMeasureBox) elMeasureBox.classList.remove('on');
@@ -703,7 +830,9 @@
   function navigateExternal(url) {
     // iOS Safari'de window.open bazen açılır pencere olarak engellenir.
     // Kullanıcı dokunuşu içinde aynı sekmeye yönlendirmek güvenilirdir.
-    window.location.assign(url);
+    var w = null;
+    try { w = window.open(url, '_blank'); } catch (e) {}
+    if (w) { try { w.opener = null; } catch (e2) {} } else window.location.assign(url);
   }
   function openGoogle() {
     var c = centerOfCurrent();
@@ -838,6 +967,7 @@
 
   (function applyHash() {
     var h = readHash();
+    if (h && h.get('lat') && h.get('lon') && !h.get('mah')) { elLat.value = h.get('lat'); elLon.value = h.get('lon'); tab('coord'); koordSor(); return; }
     if (!h || !h.get('ada') || !h.get('mah')) return;
     var ada = h.get('ada'), parsel = h.get('parsel');
     if (ada) elAda.value = ada;
